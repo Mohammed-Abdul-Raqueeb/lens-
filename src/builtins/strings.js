@@ -419,3 +419,222 @@ const gsub2 = function* gsub2(node, input, env) {
   yield* substitute(node, input, env, true, null);
 };
 
+const gsub3 = function* gsub3(node, input, env) {
+  yield* substitute(node, input, env, true, node.args[2]);
+};
+
+/**
+ * The shared body of sub and gsub.
+ *
+ * The replacement is a filter, not a string, and it runs with the match's
+ * named captures as its input. That is what makes
+ * `gsub("(?<n>\\d+)"; "[\(.n)]")` work, and it is why this cannot be a
+ * `valued` builtin.
+ */
+function* substitute(node, input, env, global, flagsNode) {
+  const context = { node, env };
+  requireType(input, 'string', global ? 'gsub' : 'sub', context);
+
+  for (const pattern of evaluate(node.args[0], input, env)) {
+    const flagValues = flagsNode ? [...evaluate(flagsNode, input, env)] : [null];
+
+    for (const flags of flagValues) {
+      const effective = global ? `${flags ?? ''}g` : flags;
+      const found = [...matchesOf(input, pattern, effective, context, global ? 'gsub' : 'sub')];
+
+      if (found.length === 0) {
+        yield input;
+        continue;
+      }
+
+      // Built by walking the matches rather than with String.replace, because
+      // the replacement is a generator and may yield more than one value --
+      // in which case the whole substitution has several results.
+      let results = [''];
+      let cursor = 0;
+
+      for (const match of found) {
+        const captures = {};
+        for (const capture of match.captures) {
+          if (capture.name !== null) captures[capture.name] = capture.string;
+        }
+
+        const replacements = [...evaluate(node.args[1], captures, env)];
+        const prefix = input.slice(cursor, match.offset);
+
+        const next = [];
+        for (const partial of results) {
+          for (const replacement of replacements) {
+            if (typeof replacement !== 'string') {
+              fail(
+                context,
+                `${global ? 'gsub' : 'sub'} needs a string replacement, not `
+                  + typeName(replacement),
+                replacement,
+              );
+            }
+            next.push(partial + prefix + replacement);
+          }
+        }
+        results = next;
+        cursor = match.offset + match.string.length;
+      }
+
+      const tail = input.slice(cursor);
+      yield* results.map((partial) => partial + tail);
+    }
+  }
+}
+
+const ascii = simple((input, context) => {
+  requireType(input, 'number', 'ascii', context);
+  return String.fromCharCode(input);
+});
+
+/** `tostream` — a document as a stream of path/value events. */
+const tostream = streaming(function* body(input) {
+  yield* streamEvents(input, []);
+});
+
+function* streamEvents(value, path) {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      yield [path, []];
+      return;
+    }
+    for (let i = 0; i < value.length; i++) {
+      yield* streamEvents(value[i], [...path, i]);
+    }
+    // The closing event carries the path of the last element, which is how a
+    // consumer knows a container ended rather than guessing from depth.
+    yield [[...path, value.length - 1]];
+    return;
+  }
+
+  if (value !== null && typeof value === 'object') {
+    const keys = Object.keys(value);
+    if (keys.length === 0) {
+      yield [path, {}];
+      return;
+    }
+    for (const key of keys) {
+      yield* streamEvents(value[key], [...path, key]);
+    }
+    yield [[...path, keys[keys.length - 1]]];
+    return;
+  }
+
+  yield [path, value];
+}
+
+/** The `@name` formats. */
+export const formats = {
+  text: (value) => (typeof value === 'string' ? value : JSON.stringify(value) ?? 'null'),
+  json: (value) => JSON.stringify(value) ?? 'null',
+
+  csv: (value) => {
+    if (!Array.isArray(value)) throw new TypeError('@csv needs an array');
+    return value.map((cell) => {
+      if (cell === null) return '';
+      if (typeof cell === 'number' || typeof cell === 'boolean') return String(cell);
+      if (typeof cell === 'string') return `"${cell.replace(/"/g, '""')}"`;
+      throw new TypeError(`@csv cannot render ${typeName(cell)}`);
+    }).join(',');
+  },
+
+  tsv: (value) => {
+    if (!Array.isArray(value)) throw new TypeError('@tsv needs an array');
+    return value.map((cell) => {
+      if (cell === null) return '';
+      if (typeof cell === 'number' || typeof cell === 'boolean') return String(cell);
+      if (typeof cell === 'string') {
+        // Tabs and newlines are escaped rather than quoted, because TSV has no
+        // quoting -- a raw tab in a cell would silently become a new column.
+        return cell
+          .replace(/\\/g, '\\\\')
+          .replace(/\t/g, '\\t')
+          .replace(/\n/g, '\\n')
+          .replace(/\r/g, '\\r');
+      }
+      throw new TypeError(`@tsv cannot render ${typeName(cell)}`);
+    }).join('\t');
+  },
+
+  html: (value) => {
+    const text = typeof value === 'string' ? value : JSON.stringify(value) ?? 'null';
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/'/g, '&#39;')
+      .replace(/"/g, '&quot;');
+  },
+
+  uri: (value) => {
+    const text = typeof value === 'string' ? value : JSON.stringify(value) ?? 'null';
+    // encodeURIComponent leaves !'()* alone, which are reserved in a query
+    // string, so they are escaped by hand.
+    return encodeURIComponent(text).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+    );
+  },
+
+  sh: (value) => {
+    const quote = (text) => `'${String(text).replace(/'/g, "'\\''")}'`;
+    if (Array.isArray(value)) return value.map(quote).join(' ');
+    if (typeof value === 'string') return quote(value);
+    return JSON.stringify(value) ?? 'null';
+  },
+
+  base64: (value) => {
+    const text = typeof value === 'string' ? value : JSON.stringify(value) ?? 'null';
+    return Buffer.from(text, 'utf8').toString('base64');
+  },
+
+  base64d: (value) => {
+    if (typeof value !== 'string') throw new TypeError('@base64d needs a string');
+    return Buffer.from(value, 'base64').toString('utf8');
+  },
+};
+
+/** The builtins this module provides, keyed by `name/arity`. */
+export const stringBuiltins = {
+  'tostring/0': tostring,
+  'tonumber/0': tonumber,
+  'tojson/0': tojson,
+  'fromjson/0': fromjson,
+  'ascii_downcase/0': asciiDowncase,
+  'ascii_upcase/0': asciiUpcase,
+  'ascii/0': ascii,
+  'explode/0': explode,
+  'implode/0': implode,
+  'split/1': split1,
+  'split/2': splitRegex,
+  'join/1': join,
+  'ltrimstr/1': ltrimstr,
+  'rtrimstr/1': rtrimstr,
+  'trimstr/1': trimstr,
+  'ltrim/0': ltrim,
+  'rtrim/0': rtrim,
+  'trim/0': trim,
+  'startswith/1': startswith,
+  'endswith/1': endswith,
+  'contains/1': contains,
+  'inside/1': inside,
+  'test/1': test1,
+  'test/2': test2,
+  'match/1': match1,
+  'match/2': match2,
+  'capture/1': capture1,
+  'capture/2': capture2,
+  'scan/1': scan1,
+  'scan/2': scan2,
+  'splits/1': splits1,
+  'splits/2': splits2,
+  'sub/2': sub2,
+  'sub/3': sub3,
+  'gsub/2': gsub2,
+  'gsub/3': gsub3,
+  'tostream/0': tostream,
+};
