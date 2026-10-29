@@ -310,3 +310,55 @@ test('paths lists every path, and leaf_paths only the scalars', () => {
   output('[paths(type == "number")]', { a: 1, b: 'x' }, [['a']]);
 });
 
+test('getpath, setpath and delpaths do not mutate their input', () => {
+  output('getpath(["a", "b"])', { a: { b: 1 } }, 1);
+  // A missing path reads as null rather than erroring.
+  output('getpath(["x", "y"])', {}, null);
+  output('setpath(["a"]; 2)', { a: 1 }, { a: 2 });
+  // Containers along the way are created.
+  output('setpath(["a", "b"]; 1)', null, { a: { b: 1 } });
+  output('delpaths([["a"]])', { a: 1, b: 2 }, { b: 2 });
+});
+
+test('delpaths handles overlapping indices correctly', () => {
+  // Deleting [0] then [1] one at a time would remove the wrong elements,
+  // because the first delete shifts the array. Descending order fixes it.
+  output('delpaths([[0], [1]])', ['a', 'b', 'c'], ['c']);
+});
+
+test('del removes what a path expression addresses', () => {
+  output('del(.a)', { a: 1, b: 2 }, { b: 2 });
+  output('del(.[0])', [1, 2, 3], [2, 3]);
+  output('del(.[0], .[2])', [1, 2, 3], [2]);
+  output('del(.a, .b)', { a: 1, b: 2, c: 3 }, { c: 3 });
+});
+
+test('path reports the paths an expression addresses', () => {
+  output('[path(.a.b)]', null, [['a', 'b']]);
+  output('[path(.[])]', [1, 2], [[0], [1]]);
+  output('[path(..)]', { a: 1 }, [['a'], []]);
+});
+
+test('an expression that is not a path cannot be assigned to', () => {
+  fails('(1 + 1) = 3', null, /cannot be assigned to/);
+  fails('length = 3', null, /cannot be assigned to/);
+});
+
+test('walk transforms children before their container', () => {
+  // A filter that counts children must see the transformed subtree.
+  output('walk(if type == "number" then . + 1 else . end)', { a: [1, 2] }, { a: [2, 3] });
+  output('walk(if type == "array" then length else . end)', { a: [1, 2] }, { a: 2 });
+});
+
+test('the type filters keep only their type', () => {
+  output('[.[] | numbers]', [1, 'a', null, 2], [1, 2]);
+  output('[.[] | strings]', [1, 'a'], ['a']);
+  output('[.[] | booleans]', [true, 1], [true]);
+  output('[.[] | nulls]', [null, 1], [null]);
+  output('[.[] | arrays]', [[1], {}], [[1]]);
+  output('[.[] | objects]', [[1], {}], [{}]);
+  output('[.[] | iterables]', [[1], {}, 2], [[1], {}]);
+  output('[.[] | scalars]', [1, [2], 'a'], [1, 'a']);
+  output('[.[] | values]', [1, null, 'a'], [1, 'a']);
+});
+
