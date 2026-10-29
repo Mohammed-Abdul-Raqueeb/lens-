@@ -128,3 +128,47 @@ const rtrimstr = valued(1, (input, [suffix]) => {
     : input;
 });
 
+const trimstr = valued(1, (input, [affix]) => {
+  if (typeof input !== 'string' || typeof affix !== 'string' || affix === '') return input;
+  let out = input;
+  if (out.startsWith(affix)) out = out.slice(affix.length);
+  if (out.endsWith(affix)) out = out.slice(0, out.length - affix.length);
+  return out;
+});
+
+const ltrim = simple((input, context) => {
+  requireType(input, 'string', 'ltrim', context);
+  return input.replace(/^\s+/, '');
+});
+
+const rtrim = simple((input, context) => {
+  requireType(input, 'string', 'rtrim', context);
+  return input.replace(/\s+$/, '');
+});
+
+const trim = simple((input, context) => {
+  requireType(input, 'string', 'trim', context);
+  return input.trim();
+});
+
+const startswith = valued(1, (input, [prefix], context) => {
+  requireType(input, 'string', 'startswith', context);
+  requireType(prefix, 'string', 'startswith', context);
+  return input.startsWith(prefix);
+});
+
+const endswith = valued(1, (input, [suffix], context) => {
+  requireType(input, 'string', 'endswith', context);
+  requireType(suffix, 'string', 'endswith', context);
+  return input.endsWith(suffix);
+});
+
+/**
+ * `contains(x)` — substring for strings, subset for arrays and objects.
+ *
+ * The overloading looks like three builtins in one, and it is one question:
+ * "is this inside that?". Keeping it together is what lets a query filter a
+ * heterogeneous document without branching on type first.
+ */
+const contains = valued(1, (input, [needle], context) => containsValue(input, needle, context));
+
