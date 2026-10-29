@@ -145,3 +145,45 @@ test('malformed JSON is reported with a preview', () => {
   assert.match(error.message, /could not parse JSON/);
 });
 
+// ---- running -------------------------------------------------------------
+
+test('a query runs against piped input', async () => {
+  const result = await cli(['.a'], { stdin: '{"a":1}' });
+  assert.equal(result.code, 0);
+  assert.equal(result.out, '1\n');
+});
+
+test('each output gets its own line', async () => {
+  const result = await cli(['.[]'], { stdin: '[1,2,3]' });
+  assert.equal(result.out, '1\n2\n3\n');
+});
+
+test('-n ignores the input entirely', async () => {
+  const result = await cli(['-n', '[range(3)]'], { stdin: 'not even json' });
+  assert.equal(result.code, 0);
+  assert.equal(result.out, '[0,1,2]\n');
+});
+
+test('-s reads every input into one array', async () => {
+  const result = await cli(['-s', 'add'], { stdin: '1 2 3' });
+  assert.equal(result.out, '6\n');
+});
+
+test('-r prints strings without quotes', async () => {
+  const quoted = await cli(['.a'], { stdin: '{"a":"x"}' });
+  assert.equal(quoted.out, '"x"\n');
+
+  const raw = await cli(['-r', '.a'], { stdin: '{"a":"x"}' });
+  assert.equal(raw.out, 'x\n');
+});
+
+test('-r leaves non-strings as JSON', async () => {
+  const result = await cli(['-r', '.a'], { stdin: '{"a":[1]}' });
+  assert.equal(result.out, '[1]\n');
+});
+
+test('-j drops the trailing newline', async () => {
+  const result = await cli(['-j', '.a'], { stdin: '{"a":"x"}' });
+  assert.equal(result.out, 'x');
+});
+
