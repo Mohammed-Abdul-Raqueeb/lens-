@@ -183,3 +183,49 @@ test('a quoted field name parses as a field', () => {
   assert.equal(ast.name, 'a-b');
 });
 
+test('an interpolated field name is refused, pointing at the alternative', () => {
+  const error = throwsWith(() => parse('."\\(.x)"'), ParseError);
+  assert.match(error.message, /\.\[expr\]/);
+});
+
+test('calls parse with and without arguments', () => {
+  assert.equal(parse('length').type, Node.CALL);
+  assert.equal(parse('length').args.length, 0);
+  assert.equal(parse('map(.a)').args.length, 1);
+  assert.equal(parse('sub("a"; "b")').args.length, 2);
+});
+
+test('if parses, with and without else', () => {
+  const withElse = parse('if .a then 1 else 2 end');
+  assert.equal(withElse.type, Node.IF);
+  assert.ok(withElse.else);
+
+  const without = parse('if .a then 1 end');
+  assert.equal(without.else, null);
+});
+
+test('elif desugars into a nested if', () => {
+  // One case in the evaluator instead of two.
+  const ast = parse('if .a then 1 elif .b then 2 else 3 end');
+  assert.equal(ast.type, Node.IF);
+  assert.equal(ast.else.type, Node.IF);
+  assert.equal(ast.else.else.value, 3);
+});
+
+test('an if missing its end is reported', () => {
+  throwsWith(() => parse('if .a then 1'), ParseError);
+});
+
+test('a dangling then is reported with a hint', () => {
+  const error = throwsWith(() => parse('then 1 end'), ParseError);
+  assert.match(error.message, /belongs to an if/);
+});
+
+test('try binds tighter than a pipe', () => {
+  // `try .a | .b` is `(try .a) | .b`: the catch covers the attempt, not
+  // everything downstream.
+  const ast = parse('try .a | .b');
+  assert.equal(ast.type, Node.PIPE);
+  assert.equal(ast.left.type, Node.TRY);
+});
+
