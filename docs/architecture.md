@@ -104,3 +104,87 @@ own file says what it computes rather than how it is plumbed in. `valued` also
 handles the cross product over multi-output arguments once, so no individual
 builtin has to think about it.
 
+### Two cycles, closed by setters
+
+`eval.js` owns the builtin table and `collectPaths`. Two builtin modules need
+to read them — `builtins` lists the table, `path` and `del` call
+`collectPaths` — and importing `eval.js` at the top of a builtin module would
+be a cycle.
+
+`index.js` registers everything and then hands those two values over through
+`setBuiltinTable` and `setPathCollector`. Mutable boxes rather than imports,
+which is not elegant but is honest about the ordering, and it is confined to
+the one module whose job is wiring.
+
+## The CLI returns an exit code
+
+`run(argv, io)` takes its streams and returns a number. `bin/lens.js` is the
+only file that knows about the real process.
+
+That is what lets every flag be tested in-process — 40-odd CLI tests with no
+subprocess — and it means a test can assert on stdout, stderr and the exit
+code together. Those are three separate promises and any of them can be
+broken alone.
+
+Exit codes are distinguished because a script may care which failure it got:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | success |
+| 1 | `-e` and the last output was `false` or `null` |
+| 2 | misuse: a bad flag, a missing file, unparseable input |
+| 3 | the query would not parse |
+| 4 | `-e` and there was no output at all |
+| 5 | the query failed at runtime |
+
+## Output formatting is hand-written
+
+`JSON.stringify` does most of this. It does not do two things that matter at a
+terminal: colour, and keeping a scalar array on one line.
+
+```
+{                          {
+  "point": [               "point": [1, 2]
+    1,                   }
+    2
+  ]
+}
+JSON.stringify            format(..., {pretty: true})
+```
+
+A document of short coordinate pairs is unreadable at one element per line and
+fits on a screen at one array per line.
+
+The width threshold is a fixed 72 characters rather than the terminal's width.
+Output that changes shape depending on where it is going cannot be diffed.
+
+## Why no dependencies
+
+A query library gets embedded in other people's tools, and every dependency it
+carries becomes a version conflict in their build.
+
+It is not free, and the cost is concentrated in two places:
+
+- **No JUnit equivalent is needed** — Node has `node:test` built in, so the
+  test suite costs nothing. This was luck rather than planning.
+- **The linter is hand-written.** `tools/lint.js` is 120 lines doing a small
+  fraction of what ESLint does. It exists mainly to check the no-dependency
+  promise itself, since a promise with nothing enforcing it gets broken by
+  accident.
+
+The regex engine is the exception that proves the rule: `RegExp` comes from
+the host. Writing one would have been a larger project than this one.
+
+## What is deliberately missing
+
+- **Destructuring patterns.** `. as [$a, $b]` is refused by name. Supporting
+  it means a pattern language inside the binding form, and half of that is
+  worse than none.
+- **Modules.** `import` and `include` lex and go nowhere.
+- **`input` and `inputs`.** The evaluator has no notion of an input stream;
+  the CLI owns input. Adding them would put the file system behind a filter.
+- **Date functions.** `now`, `strftime` and friends. Omitted rather than
+  half-done, because time zones make the half-done version actively wrong.
+- **A path optimiser.** `collectPaths` walks the target expression for every
+  assignment, re-evaluating index expressions each time. Fine for a handful
+  of paths and quadratic for `.[] |= f` over a large array.
