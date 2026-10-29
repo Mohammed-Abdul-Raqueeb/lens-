@@ -283,3 +283,46 @@ test('an unknown flag exits 2 and names it', async () => {
   assert.match(result.err, /--nope/);
 });
 
+// ---- help and version ----------------------------------------------------
+
+test('--help lists every flag it accepts', async () => {
+  const result = await cli(['--help']);
+  assert.equal(result.code, 0);
+  for (const flag of ['--raw-output', '--null-input', '--slurp', '--argjson', '--sort-keys']) {
+    assert.ok(result.out.includes(flag), `help should mention ${flag}`);
+  }
+});
+
+test('--version prints the name and number', async () => {
+  const result = await cli(['--version']);
+  assert.equal(result.code, 0);
+  assert.match(result.out, /^lens \d+\.\d+\.\d+\n$/);
+});
+
+test('--builtins lists them one per line', async () => {
+  const result = await cli(['--builtins']);
+  assert.equal(result.code, 0);
+  const lines = result.out.trim().split('\n');
+  assert.ok(lines.includes('map/1'));
+  assert.ok(lines.length > 60, `expected many builtins, got ${lines.length}`);
+});
+
+// ---- formatting ----------------------------------------------------------
+
+test('compact output matches JSON.stringify for ordinary values', () => {
+  for (const value of [null, true, 1, 'a', [1, 2], { a: 1 }, { a: [1, { b: 2 }] }]) {
+    assert.equal(format(value), JSON.stringify(value));
+  }
+});
+
+test('pretty output keeps a scalar array on one line', () => {
+  // The departure from JSON.stringify, and most of why format.js exists: a
+  // document of short arrays is unreadable at one element per line.
+  assert.equal(format([1, 2, 3], { pretty: true }), '[1, 2, 3]');
+  assert.equal(format({ a: [1, 2] }, { pretty: true }), '{\n  "a": [1, 2]\n}');
+});
+
+test('pretty output breaks an array of containers', () => {
+  assert.equal(format([[1], [2]], { pretty: true }), '[\n  [1],\n  [2]\n]');
+});
+
