@@ -232,3 +232,54 @@ test('-S sorts object keys', async () => {
   assert.equal(result.out, '{"a":2,"b":1}\n');
 });
 
+test('--seq prefixes each output with a record separator', async () => {
+  const result = await cli(['--seq', '.[]'], { stdin: '[1,2]' });
+  assert.equal(result.out, '\u001e1\n\u001e2\n');
+});
+
+test('-e reports the last output as a shell truth value', async () => {
+  assert.equal((await cli(['-e', '.a'], { stdin: '{"a":1}' })).code, 0);
+  assert.equal((await cli(['-e', '.a'], { stdin: '{"a":false}' })).code, 1);
+  assert.equal((await cli(['-e', '.a'], { stdin: '{"a":null}' })).code, 1);
+  // No output at all is 4, because "matched nothing" and "matched false" are
+  // different answers and a script may care which it got.
+  assert.equal((await cli(['-e', 'empty'], { stdin: '{}' })).code, 4);
+});
+
+// ---- failure modes -------------------------------------------------------
+
+test('no query at all is a usage error pointing at help', async () => {
+  const result = await cli([]);
+  assert.equal(result.code, 2);
+  assert.match(result.err, /a query is required/);
+  assert.match(result.err, /--help/);
+});
+
+test('a parse error exits 3 and draws a caret', async () => {
+  const result = await cli(['.a |'], { stdin: '{}' });
+  assert.equal(result.code, 3);
+  assert.match(result.err, /ParseError/);
+  assert.match(result.err, /\^/);
+  assert.equal(result.out, '');
+});
+
+test('a runtime error exits 5', async () => {
+  // Distinct from a parse error, because the two call for different fixes:
+  // one is a mistake in the query, the other a mismatch with the data.
+  const result = await cli(['.a + 1'], { stdin: '{"a":"text"}' });
+  assert.equal(result.code, 5);
+  assert.match(result.err, /cannot add/);
+});
+
+test('an unparseable input is a usage error, not a crash', async () => {
+  const result = await cli(['.'], { stdin: '{nope}' });
+  assert.equal(result.code, 2);
+  assert.match(result.err, /could not parse JSON/);
+});
+
+test('an unknown flag exits 2 and names it', async () => {
+  const result = await cli(['--nope', '.']);
+  assert.equal(result.code, 2);
+  assert.match(result.err, /--nope/);
+});
+
