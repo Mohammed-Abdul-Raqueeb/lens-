@@ -159,3 +159,233 @@ function writeValue(value, renderOptions, options, io) {
   io.out.write(options.joinOutput ? text : `${text}\n`);
 }
 
+function buildVars(options) {
+  const vars = { ...options.vars };
+  const named = { ...options.vars };
+
+  // $ENV and $__loc__ are jq's, and ARGS is how a script reaches its own
+  // arguments without the shell quoting them into the query.
+  vars.ENV = { ...process.env };
+  vars.ARGS = { positional: options.positional, named };
+  return vars;
+}
+
+async function readInputs(options, io) {
+  if (options.nullInput) return [null];
+
+  let text;
+  if (options.files.length > 0) {
+    text = options.files.map((path) => io.readFile(path)).join('\n');
+  } else {
+    text = await io.readStdin();
+  }
+
+  const values = parseJsonStream(text);
+  return options.slurp ? [values] : values;
+}
+
+/**
+ * Parses a stream of whitespace-separated JSON values.
+ *
+ * `JSON.parse` handles one value per string, and the common input here is a
+ * file of newline-delimited records. Scanning for value boundaries by
+ * tracking depth is enough: the only ambiguity JSON has at the top level is
+ * inside strings, which is why the scanner tracks those too.
+ *
+ * @param {string} text the input
+ * @returns {unknown[]} the values, in order
+ */
+export function parseJsonStream(text) {
+  const values = [];
+  let at = 0;
+
+  while (at < text.length) {
+    while (at < text.length && /\s/.test(text[at])) at++;
+    if (at >= text.length) break;
+
+    const start = at;
+    const first = text[at];
+
+    if (first === '{' || first === '[') {
+      let depth = 0;
+      let inString = false;
+      while (at < text.length) {
+        const char = text[at];
+        if (inString) {
+          if (char === '\\') at++;
+          else if (char === '"') inString = false;
+        } else if (char === '"') {
+          inString = true;
+        } else if (char === '{' || char === '[') {
+          depth++;
+        } else if (char === '}' || char === ']') {
+          depth--;
+          if (depth === 0) {
+            at++;
+            break;
+          }
+        }
+        at++;
+      }
+      if (depth !== 0) {
+        throw new Error(`unterminated JSON value starting at offset ${start}`);
+      }
+    } else if (first === '"') {
+      at++;
+      while (at < text.length) {
+        if (text[at] === '\\') at++;
+        else if (text[at] === '"') {
+          at++;
+          break;
+        }
+        at++;
+      }
+    } else {
+      // A bare number, true, false or null runs to the next whitespace or
+      // structural character.
+      while (at < text.length && !/[\s,\]}]/.test(text[at])) at++;
+    }
+
+    const slice = text.slice(start, at).trim();
+    if (slice === '') continue;
+
+    try {
+      values.push(JSON.parse(slice));
+    } catch (error) {
+      const preview = slice.length > 40 ? `${slice.slice(0, 40)}...` : slice;
+      throw new Error(`could not parse JSON at offset ${start}: ${preview}`);
+    }
+
+    // A comma between top-level values is tolerated, since a file of records
+    // is often a JSON array with its brackets stripped.
+    while (at < text.length && /[\s,]/.test(text[at])) at++;
+  }
+
+  return values;
+}
+
+/**
+ * Parses the command line.
+ *
+ * @param {string[]} argv the arguments
+ * @returns {object} the parsed options
+ * @throws {Error} on an unknown flag or a missing value
+ */
+export function parseArgs(argv) {
+  const options = {
+    query: null,
+    files: [],
+    vars: {},
+    positional: [],
+    pretty: null,
+    colour: null,
+    compact: false,
+    rawOutput: false,
+    joinOutput: false,
+    nullInput: false,
+    slurp: false,
+    exitStatus: false,
+    sortKeys: false,
+    tab: false,
+    indent: 2,
+    seq: false,
+    help: false,
+    version: false,
+    listBuiltins: false,
+  };
+
+  let collectingPositional = false;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+
+    if (collectingPositional) {
+      options.positional.push(arg);
+      continue;
+    }
+
+    const needsValue = (name) => {
+      if (i + 1 >= argv.length) throw new Error(`${name} needs a value`);
+      i++;
+      return argv[i];
+    };
+
+    switch (arg) {
+      case '-h': case '--help': options.help = true; break;
+      case '-V': case '--version': options.version = true; break;
+      case '--builtins': options.listBuiltins = true; break;
+      case '-c': case '--compact': case '--compact-output':
+        options.compact = true;
+        options.pretty = false;
+        break;
+      case '-p': case '--pretty': case '--pretty-output': options.pretty = true; break;
+      case '-r': case '--raw-output': options.rawOutput = true; break;
+      case '-j': case '--join-output':
+        options.rawOutput = true;
+        options.joinOutput = true;
+        break;
+      case '-n': case '--null-input': options.nullInput = true; break;
+      case '-s': case '--slurp': options.slurp = true; break;
+      case '-e': case '--exit-status': options.exitStatus = true; break;
+      case '-S': case '--sort-keys': options.sortKeys = true; break;
+      case '-t': case '--tab': options.tab = true; break;
+      case '-C': case '--color-output': case '--colour-output': options.colour = true; break;
+      case '-M': case '--monochrome-output': case '--monochrome': options.colour = false; break;
+      case '--seq': options.seq = true; break;
+
+      case '--indent': {
+        const value = Number(needsValue('--indent'));
+        if (!Number.isInteger(value) || value < 0 || value > 8) {
+          throw new Error('--indent needs a whole number from 0 to 8');
+        }
+        options.indent = value;
+        break;
+      }
+
+      case '--arg': {
+        const name = needsValue('--arg');
+        const value = needsValue('--arg');
+        options.vars[name] = value;
+        break;
+      }
+
+      case '--argjson': {
+        const name = needsValue('--argjson');
+        const raw = needsValue('--argjson');
+        try {
+          options.vars[name] = JSON.parse(raw);
+        } catch (error) {
+          throw new Error(`--argjson ${name} is not valid JSON: ${raw}`);
+        }
+        break;
+      }
+
+      case '--args':
+        collectingPositional = true;
+        break;
+
+      default: {
+        if (arg.startsWith('--') && arg.includes('=')) {
+          // `--indent=4` is the other spelling people reach for, so it is
+          // rewritten rather than refused.
+          const split = arg.indexOf('=');
+          argv.splice(i, 1, arg.slice(0, split), arg.slice(split + 1));
+          i--;
+          break;
+        }
+        if (arg.startsWith('-') && arg !== '-' && arg.length > 1) {
+          throw new Error(`unknown option "${arg}"`);
+        }
+        if (options.query === null) {
+          options.query = arg;
+        } else {
+          options.files.push(arg);
+        }
+      }
+    }
+  }
+
+  return options;
+}
+
+export { USAGE };
