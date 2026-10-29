@@ -133,3 +133,53 @@ test('a trailing comma in an object is accepted', () => {
   assert.equal(ast.entries.length, 2);
 });
 
+test('an object value stops at the comma', () => {
+  const ast = parse('{a: 1, b: 2}');
+  assert.equal(ast.entries[0].value.value, 1);
+  assert.equal(ast.entries[1].value.value, 2);
+});
+
+test('a computed key with no value is an error naming the fix', () => {
+  const error = throwsWith(() => parse('{(.k)}'), ParseError);
+  assert.match(error.message, /needs a ':'/);
+});
+
+test('suffixes read left to right', () => {
+  const ast = parse('.a[0]');
+  assert.equal(ast.type, Node.PIPE);
+  assert.equal(ast.right.type, Node.INDEX);
+});
+
+test('an optional dot before a bracket is allowed', () => {
+  // Both `.a[0]` and `.a.[0]` appear in the wild. Compared by shape rather
+  // than by JSON, because the extra dot shifts every offset in the tree.
+  sameShape(parse('.a.[0]'), parse('.a[0]'));
+});
+
+test('iterate, index and slice are distinguished by their contents', () => {
+  assert.equal(parse('.[]').type, Node.ITERATE);
+  assert.equal(parse('.[0]').type, Node.INDEX);
+  assert.equal(parse('.[1:2]').type, Node.SLICE);
+});
+
+test('a slice may omit either bound', () => {
+  const from = parse('.[2:]');
+  assert.equal(from.type, Node.SLICE);
+  assert.equal(from.to, null);
+
+  const to = parse('.[:2]');
+  assert.equal(to.type, Node.SLICE);
+  assert.equal(to.from, null);
+});
+
+test('a question mark wraps what precedes it', () => {
+  const ast = parse('.a?');
+  assert.equal(ast.type, Node.OPTIONAL);
+});
+
+test('a quoted field name parses as a field', () => {
+  const ast = parse('."a-b"');
+  assert.equal(ast.type, Node.FIELD);
+  assert.equal(ast.name, 'a-b');
+});
+
