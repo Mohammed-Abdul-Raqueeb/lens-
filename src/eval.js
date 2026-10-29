@@ -376,3 +376,140 @@ function* evalSlice(node, input, env) {
   }
 }
 
+function clampIndex(index, length) {
+  const at = index < 0 ? length + index : index;
+  return Math.max(0, Math.min(at, length));
+}
+
+function* evalIterate(node, input, env) {
+  if (Array.isArray(input)) {
+    yield* input;
+    return;
+  }
+  if (input !== null && typeof input === 'object') {
+    for (const key of Object.keys(input)) yield input[key];
+    return;
+  }
+  if (node.optional) return;
+  throw failure(node, env, `cannot iterate over ${typeName(input)}: ${describe(input)}`, input);
+}
+
+function* evalObject(node, input, env) {
+  // Entries are expanded as a cross product: `{a: (1,2)}` yields two objects,
+  // not one object with two values. Building that iteratively rather than
+  // recursively keeps the common single-output case allocation-free.
+  let objects = [{}];
+
+  for (const entry of node.entries) {
+    const next = [];
+    for (const partial of objects) {
+      for (const key of evaluate(entry.key, input, env)) {
+        if (typeof key !== 'string') {
+          throw failure(
+            node,
+            env,
+            `an object key must be a string, found ${typeName(key)}: ${describe(key)}`,
+            key,
+          );
+        }
+        for (const value of evaluate(entry.value, input, env)) {
+          next.push({ ...partial, [key]: value });
+        }
+      }
+    }
+    objects = next;
+  }
+
+  yield* objects;
+}
+
+function* evalBinary(node, input, env) {
+  for (const left of evaluate(node.left, input, env)) {
+    for (const right of evaluate(node.right, input, env)) {
+      yield applyBinary(node, left, right, env);
+    }
+  }
+}
+
+function applyBinary(node, left, right, env) {
+  switch (node.op) {
+    case '==': return equals(left, right);
+    case '!=': return !equals(left, right);
+    case '<': return compare(left, right) < 0;
+    case '<=': return compare(left, right) <= 0;
+    case '>': return compare(left, right) > 0;
+    case '>=': return compare(left, right) >= 0;
+    case '+': return add(node, left, right, env);
+    case '-': return subtract(node, left, right, env);
+    case '*': return multiply(node, left, right, env);
+    case '/': return divide(node, left, right, env);
+    case '%': return modulo(node, left, right, env);
+    default:
+      throw failure(node, env, `unknown operator '${node.op}'`);
+  }
+}
+
+/**
+ * `+` is overloaded by type, which is most of what makes the language terse.
+ *
+ * null is the identity on both sides, so `reduce .[] as $x (null; . + $x)`
+ * works without seeding the accumulator with the right empty value.
+ */
+function add(node, left, right, env) {
+  if (left === null) return right;
+  if (right === null) return left;
+
+  if (typeof left === 'number' && typeof right === 'number') return left + right;
+  if (typeof left === 'string' && typeof right === 'string') return left + right;
+  if (Array.isArray(left) && Array.isArray(right)) return [...left, ...right];
+
+  if (isPlainObject(left) && isPlainObject(right)) {
+    // Right wins on a conflict, shallowly. A deep merge is `*`, and having
+    // both is the point: one replaces a subtree, the other merges into it.
+    return { ...left, ...right };
+  }
+
+  throw failure(
+    node,
+    env,
+    `cannot add ${typeName(left)} and ${typeName(right)}`
+      + ` (${describe(left)} + ${describe(right)})`,
+    left,
+  );
+}
+
+function subtract(node, left, right, env) {
+  if (typeof left === 'number' && typeof right === 'number') return left - right;
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.filter((element) => !right.some((unwanted) => equals(element, unwanted)));
+  }
+  throw failure(
+    node,
+    env,
+    `cannot subtract ${typeName(right)} from ${typeName(left)}`,
+    left,
+  );
+}
+
+function multiply(node, left, right, env) {
+  if (typeof left === 'number' && typeof right === 'number') return left * right;
+
+  if (typeof left === 'string' && typeof right === 'number') {
+    // A repeat count below one yields null rather than an empty string, which
+    // is jq's behaviour and lets `.sep * .n` drop the separator entirely.
+    return right < 1 ? null : left.repeat(Math.floor(right));
+  }
+  if (typeof left === 'number' && typeof right === 'string') {
+    return left < 1 ? null : right.repeat(Math.floor(left));
+  }
+
+  if (isPlainObject(left) && isPlainObject(right)) return deepMerge(left, right);
+
+  throw failure(
+    node,
+    env,
+    `cannot multiply ${typeName(left)} and ${typeName(right)}`,
+    left,
+  );
+}
+
