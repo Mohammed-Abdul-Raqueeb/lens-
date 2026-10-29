@@ -212,3 +212,49 @@ test('any and all with a filter short-circuit', () => {
   output('any(. == 1)', [1, 'x'], true);
 });
 
+test('flatten goes all the way down or to a depth', () => {
+  output('flatten', [1, [2, [3, [4]]]], [1, 2, 3, 4]);
+  output('flatten(1)', [1, [2, [3]]], [1, 2, [3]]);
+  output('flatten(0)', [1, [2]], [1, [2]]);
+  fails('flatten(-1)', [], /depth of 0 or more/);
+});
+
+test('first and last work on arrays and on filters', () => {
+  output('first', [1, 2], 1);
+  output('last', [1, 2], 2);
+  output('first', [], null);
+  output('first(.[])', [1, 2], 1);
+  output('last(.[])', [1, 2], 2);
+  outputs('first(empty)', null, []);
+});
+
+test('first stops the generator rather than draining it', () => {
+  // The reason it beats `[f] | .[0]`: this would be a million values
+  // otherwise.
+  output('first(range(1000000))', null, 0);
+});
+
+test('nth indexes an array or a filter', () => {
+  output('nth(1)', [10, 20, 30], 20);
+  output('nth(9)', [1], null);
+  output('nth(2; .[])', [10, 20, 30], 30);
+  fails('nth(-1)', [1], /index of 0 or more/);
+});
+
+test('limit takes at most n and stops early', () => {
+  output('[limit(2; .[])]', [1, 2, 3], [1, 2]);
+  output('[limit(0; .[])]', [1, 2], []);
+  output('[limit(2; range(1000000))]', null, [0, 1]);
+});
+
+test('until and while iterate, and are bounded', () => {
+  output('until(. > 4; . + 1)', 1, 5);
+  output('[while(. < 4; . + 1)]', 1, [1, 2, 3]);
+  // An unbounded loop would hang with no output; the bound makes it an error.
+  fails('until(false; .)', 1, /million times/);
+});
+
+test('repeat needs a limit to terminate', () => {
+  output('[limit(3; repeat(. * 2))]', 1, [1, 2, 4]);
+});
+
