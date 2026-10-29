@@ -191,3 +191,135 @@ const path1 = function* path1(node, input, env) {
  */
 const COLLECT = { collectPaths: null };
 
+/**
+ * Hands `collectPaths` to the path builtins.
+ *
+ * @param {Function} fn eval.js's collectPaths
+ */
+export function setPathCollector(fn) {
+  COLLECT.collectPaths = fn;
+}
+
+/** `to_number`-style conversion of every leaf, used by `walk`. */
+const walkBuiltin = function* walkBuiltin(node, input, env) {
+  yield* walkValue(node, input, env);
+};
+
+function* walkValue(node, value, env) {
+  let rebuilt = value;
+
+  if (Array.isArray(value)) {
+    const out = [];
+    for (const element of value) {
+      for (const transformed of walkValue(node, element, env)) {
+        out.push(transformed);
+        break;
+      }
+    }
+    rebuilt = out;
+  } else if (value !== null && typeof value === 'object') {
+    const out = {};
+    for (const key of Object.keys(value)) {
+      for (const transformed of walkValue(node, value[key], env)) {
+        out[key] = transformed;
+        break;
+      }
+    }
+    rebuilt = out;
+  }
+
+  // Children first, then the container: `walk(f)` has to see an already
+  // transformed subtree, or a filter that counts its children would count the
+  // originals.
+  yield* evaluate(node.args[0], rebuilt, env);
+}
+
+const objectsOnly = (name, predicate) => streaming(function* body(input) {
+  if (predicate(input)) yield input;
+});
+
+const arraysFilter = objectsOnly('arrays', (value) => Array.isArray(value));
+const objectsFilter = objectsOnly('objects', (value) => (
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+));
+const iterablesFilter = objectsOnly('iterables', (value) => (
+  Array.isArray(value) || (value !== null && typeof value === 'object')
+));
+const booleansFilter = objectsOnly('booleans', (value) => typeof value === 'boolean');
+const numbersFilter = objectsOnly('numbers', (value) => typeof value === 'number');
+const stringsFilter = objectsOnly('strings', (value) => typeof value === 'string');
+const nullsFilter = objectsOnly('nulls', (value) => value === null);
+const valuesFilter = objectsOnly('values', (value) => value !== null && value !== undefined);
+const scalarsFilter = objectsOnly('scalars', (value) => (
+  value === null || (typeof value !== 'object')
+));
+
+/** `tostream`'s inverse: rebuilds a document from path/value events. */
+const fromstream = function* fromstream(node, input, env) {
+  const context = { node, env };
+  let building = null;
+  let started = false;
+
+  for (const event of evaluate(node.args[0], input, env)) {
+    if (!Array.isArray(event) || event.length === 0) {
+      fail(
+        context,
+        'fromstream needs stream events, which are arrays of one or two elements',
+        event,
+      );
+    }
+
+    if (event.length >= 2) {
+      const [path, value] = event;
+      requirePath(path);
+      if (path.length === 0) {
+        yield value;
+        building = null;
+        started = false;
+        continue;
+      }
+      building = setPath(started ? building : null, path, value);
+      started = true;
+      continue;
+    }
+
+    const [path] = event;
+    requirePath(path);
+    // A one-element event closes a container. At depth one it closes the
+    // document, so the accumulated value is complete and emitted.
+    if (path.length === 1 && started) {
+      yield building;
+      building = null;
+      started = false;
+    }
+  }
+};
+
+const cloneBuiltin = simple((input) => clone(input));
+
+/** The builtins this module provides, keyed by `name/arity`. */
+export const objectBuiltins = {
+  'to_entries/0': toEntries,
+  'from_entries/0': fromEntries,
+  'with_entries/1': withEntries,
+  'paths/0': paths0,
+  'paths/1': paths1,
+  'leaf_paths/0': leafPaths,
+  'getpath/1': getpath,
+  'setpath/2': setpath,
+  'delpaths/1': delpaths,
+  'path/1': path1,
+  'del/1': del,
+  'walk/1': walkBuiltin,
+  'arrays/0': arraysFilter,
+  'objects/0': objectsFilter,
+  'iterables/0': iterablesFilter,
+  'booleans/0': booleansFilter,
+  'numbers/0': numbersFilter,
+  'strings/0': stringsFilter,
+  'nulls/0': nullsFilter,
+  'values/0': valuesFilter,
+  'scalars/0': scalarsFilter,
+  'fromstream/1': fromstream,
+  'clone/0': cloneBuiltin,
+};
