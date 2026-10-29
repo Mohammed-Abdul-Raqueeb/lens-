@@ -324,3 +324,165 @@ const last0 = simple((input, context) => {
   return input.length === 0 ? null : input[input.length - 1];
 });
 
+const nth1 = valued(1, (input, [at], context) => {
+  requireType(input, 'array', 'nth', context);
+  requireType(at, 'number', 'nth', context);
+  if (at < 0) return fail(context, `nth needs an index of 0 or more, got ${at}`, at);
+  return at < input.length ? input[at] : null;
+});
+
+const nth2 = function* nth2(node, input, env) {
+  const context = { node, env };
+  for (const at of evaluate(node.args[0], input, env)) {
+    requireType(at, 'number', 'nth', context);
+    if (at < 0) fail(context, `nth needs an index of 0 or more, got ${at}`, at);
+
+    let seen = 0;
+    for (const value of evaluate(node.args[1], input, env)) {
+      if (seen === at) {
+        yield value;
+        break;
+      }
+      seen++;
+    }
+  }
+};
+
+/** `limit(n; f)` — at most `n` outputs of `f`, stopping early. */
+const limit = function* limit(node, input, env) {
+  const context = { node, env };
+  for (const count of evaluate(node.args[0], input, env)) {
+    requireType(count, 'number', 'limit', context);
+    if (count <= 0) continue;
+
+    let emitted = 0;
+    for (const value of evaluate(node.args[1], input, env)) {
+      yield value;
+      emitted++;
+      if (emitted >= count) break;
+    }
+  }
+};
+
+/** `until(cond; update)` — applies `update` until `cond` holds. */
+const until = function* until(node, input, env) {
+  const context = { node, env };
+  let current = input;
+
+  // Bounded, because `until` with a condition that never holds is an infinite
+  // loop with no output -- indistinguishable from a hang.
+  for (let step = 0; step < 1_000_000; step++) {
+    let done = false;
+    for (const test of evaluate(node.args[0], current, env)) {
+      done = truthy(test);
+      break;
+    }
+    if (done) {
+      yield current;
+      return;
+    }
+
+    let next;
+    let produced = false;
+    for (const candidate of evaluate(node.args[1], current, env)) {
+      next = candidate;
+      produced = true;
+      break;
+    }
+    if (!produced) return;
+    current = next;
+  }
+
+  fail(context, 'until ran a million times without its condition becoming true');
+};
+
+/** `while(cond; update)` — the values for which `cond` holds. */
+const whileLoop = function* whileLoop(node, input, env) {
+  const context = { node, env };
+  let current = input;
+
+  for (let step = 0; step < 1_000_000; step++) {
+    let keep = false;
+    for (const test of evaluate(node.args[0], current, env)) {
+      keep = truthy(test);
+      break;
+    }
+    if (!keep) return;
+    yield current;
+
+    let next;
+    let produced = false;
+    for (const candidate of evaluate(node.args[1], current, env)) {
+      next = candidate;
+      produced = true;
+      break;
+    }
+    if (!produced) return;
+    current = next;
+  }
+
+  fail(context, 'while ran a million times without its condition becoming false');
+};
+
+/** `repeat(f)` — `f` applied over and over. Needs a `limit` or an error to stop. */
+const repeat = function* repeat(node, input, env) {
+  let current = input;
+  for (let step = 0; step < 1_000_000; step++) {
+    yield current;
+    let next;
+    let produced = false;
+    for (const candidate of evaluate(node.args[0], current, env)) {
+      next = candidate;
+      produced = true;
+      break;
+    }
+    if (!produced) return;
+    current = next;
+  }
+  fail({ node, env }, 'repeat ran a million times; use limit to bound it');
+};
+
+/** `indices(x)` — where `x` occurs, by element, substring or subsequence. */
+const indices = valued(1, (input, [needle], context) => {
+  if (input === null) return null;
+
+  if (typeof input === 'string') {
+    if (typeof needle !== 'string') {
+      return fail(context, `indices on a string needs a string, not ${typeName(needle)}`, needle);
+    }
+    return stringIndices(input, needle);
+  }
+
+  if (!Array.isArray(input)) {
+    return fail(context, `indices needs a string or an array, not ${typeName(input)}`, input);
+  }
+
+  if (Array.isArray(needle)) {
+    if (needle.length === 0) return null;
+    const out = [];
+    for (let i = 0; i + needle.length <= input.length; i++) {
+      if (needle.every((element, j) => equals(input[i + j], element))) out.push(i);
+    }
+    return out;
+  }
+
+  const out = [];
+  input.forEach((element, i) => {
+    if (equals(element, needle)) out.push(i);
+  });
+  return out;
+});
+
+function stringIndices(haystack, needle) {
+  if (needle.length === 0) return null;
+  const out = [];
+  let at = haystack.indexOf(needle);
+  while (at !== -1) {
+    out.push(at);
+    // Advances by one rather than by the needle's length, so overlapping
+    // occurrences are all reported -- "aa" in "aaa" is at 0 and 1.
+    at = haystack.indexOf(needle, at + 1);
+  }
+  return out;
+}
+
