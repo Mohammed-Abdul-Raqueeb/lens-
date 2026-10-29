@@ -60,3 +60,51 @@ test('join-output implies raw-output', () => {
   assert.equal(options.joinOutput, true);
 });
 
+test('compact and pretty override each other explicitly', () => {
+  assert.equal(parseArgs(['-c', '.']).pretty, false);
+  assert.equal(parseArgs(['-p', '.']).pretty, true);
+  // Unset means "decide from whether output is a terminal".
+  assert.equal(parseArgs(['.']).pretty, null);
+});
+
+test('--arg binds a string and --argjson binds a value', () => {
+  assert.deepEqual(parseArgs(['--arg', 'k', '1', '.']).vars, { k: '1' });
+  assert.deepEqual(parseArgs(['--argjson', 'k', '1', '.']).vars, { k: 1 });
+  assert.deepEqual(parseArgs(['--argjson', 'k', '[1]', '.']).vars, { k: [1] });
+});
+
+test('--argjson with bad JSON is reported, quoting it', () => {
+  const error = throwsWith(() => parseArgs(['--argjson', 'k', '{bad', '.']), Error);
+  assert.match(error.message, /not valid JSON/);
+  assert.match(error.message, /\{bad/);
+});
+
+test('an option missing its value is reported by name', () => {
+  const error = throwsWith(() => parseArgs(['--arg']), Error);
+  assert.match(error.message, /--arg needs a value/);
+});
+
+test('--name=value is accepted as well as --name value', () => {
+  assert.equal(parseArgs(['--indent=4', '.']).indent, 4);
+  assert.deepEqual(parseArgs(['--arg=k', 'v', '.']).vars, { k: 'v' });
+});
+
+test('--indent is bounded', () => {
+  assert.equal(parseArgs(['--indent', '0', '.']).indent, 0);
+  throwsWith(() => parseArgs(['--indent', '9', '.']), Error);
+  throwsWith(() => parseArgs(['--indent', 'x', '.']), Error);
+});
+
+test('--args collects what follows as positional arguments', () => {
+  const options = parseArgs(['.', '--args', 'a', 'b']);
+  assert.deepEqual(options.positional, ['a', 'b']);
+  // Everything after --args is positional, even if it looks like a flag.
+  assert.deepEqual(parseArgs(['.', '--args', '-r']).positional, ['-r']);
+});
+
+test('an unknown flag is refused rather than ignored', () => {
+  // A silently ignored --jsno leads a user to conclude the tool is broken.
+  const error = throwsWith(() => parseArgs(['--jsno', '.']), Error);
+  assert.match(error.message, /unknown option "--jsno"/);
+});
+
