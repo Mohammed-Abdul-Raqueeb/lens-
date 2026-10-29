@@ -486,3 +486,120 @@ function stringIndices(haystack, needle) {
   return out;
 }
 
+const index1 = valued(1, (input, [needle], context) => {
+  const found = indicesOf(input, needle, context);
+  return found === null || found.length === 0 ? null : found[0];
+});
+
+const rindex1 = valued(1, (input, [needle], context) => {
+  const found = indicesOf(input, needle, context);
+  return found === null || found.length === 0 ? null : found[found.length - 1];
+});
+
+function indicesOf(input, needle, context) {
+  if (input === null) return null;
+  if (typeof input === 'string') {
+    if (typeof needle !== 'string') {
+      return fail(context, `index on a string needs a string, not ${typeName(needle)}`, needle);
+    }
+    return stringIndices(input, needle);
+  }
+  if (!Array.isArray(input)) {
+    return fail(context, `index needs a string or an array, not ${typeName(input)}`, input);
+  }
+  if (Array.isArray(needle)) {
+    if (needle.length === 0) return null;
+    const out = [];
+    for (let i = 0; i + needle.length <= input.length; i++) {
+      if (needle.every((element, j) => equals(input[i + j], element))) out.push(i);
+    }
+    return out;
+  }
+  const out = [];
+  input.forEach((element, i) => {
+    if (equals(element, needle)) out.push(i);
+  });
+  return out;
+}
+
+/** `combinations` — one element from each of several arrays, every way. */
+const combinations0 = streaming(function* body(input, context) {
+  requireType(input, 'array', 'combinations', context);
+  yield* cartesian(input, 0, [], context);
+});
+
+function* cartesian(arrays, at, prefix, context) {
+  if (at === arrays.length) {
+    yield [...prefix];
+    return;
+  }
+  const current = arrays[at];
+  if (!Array.isArray(current)) {
+    fail(context, `combinations needs an array of arrays, found ${typeName(current)}`, current);
+  }
+  for (const element of current) {
+    prefix.push(element);
+    yield* cartesian(arrays, at + 1, prefix, context);
+    prefix.pop();
+  }
+}
+
+/** `transpose` — rows to columns, padding short rows with null. */
+const transpose = simple((input, context) => {
+  requireType(input, 'array', 'transpose', context);
+
+  const width = input.reduce((widest, row) => {
+    if (!Array.isArray(row)) {
+      return fail(context, `transpose needs an array of arrays, found ${typeName(row)}`, row);
+    }
+    return Math.max(widest, row.length);
+  }, 0);
+
+  const out = [];
+  for (let column = 0; column < width; column++) {
+    // Padded rather than ragged, so every output row has the same length and
+    // `transpose | transpose` round-trips a rectangular input.
+    out.push(input.map((row) => (column < row.length ? row[column] : null)));
+  }
+  return out;
+});
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** The builtins this module provides, keyed by `name/arity`. */
+export const arrayBuiltins = {
+  'sort/0': sort,
+  'sort_by/1': sortBy,
+  'group_by/1': groupBy,
+  'unique/0': unique,
+  'unique_by/1': uniqueBy,
+  'reverse/0': reverse,
+  'min/0': min,
+  'max/0': max,
+  'min_by/1': extremeBy('min_by', -1),
+  'max_by/1': extremeBy('max_by', 1),
+  'add/0': add,
+  'any/0': any0,
+  'any/1': any1,
+  'all/0': all0,
+  'all/1': all1,
+  'flatten/0': flatten0,
+  'flatten/1': flatten1,
+  'first/0': first0,
+  'first/1': first1,
+  'last/0': last0,
+  'last/1': last1,
+  'nth/1': nth1,
+  'nth/2': nth2,
+  'limit/2': limit,
+  'until/2': until,
+  'while/2': whileLoop,
+  'repeat/1': repeat,
+  'indices/1': indices,
+  'index/1': index1,
+  'rindex/1': rindex1,
+  'combinations/0': combinations0,
+  'transpose/0': transpose,
+};
