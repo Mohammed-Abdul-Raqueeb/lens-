@@ -229,3 +229,52 @@ test('try binds tighter than a pipe', () => {
   assert.equal(ast.left.type, Node.TRY);
 });
 
+test('try parses with and without a catch', () => {
+  assert.equal(parse('try .a').handler, null);
+  assert.ok(parse('try .a catch .').handler);
+});
+
+test('reduce and foreach parse their three and four parts', () => {
+  const reduce = parse('reduce .[] as $x (0; . + $x)');
+  assert.equal(reduce.type, Node.REDUCE);
+  assert.equal(reduce.pattern.name, 'x');
+
+  const foreach = parse('foreach .[] as $x (0; . + $x; .)');
+  assert.equal(foreach.type, Node.FOREACH);
+  assert.ok(foreach.extract);
+
+  const noExtract = parse('foreach .[] as $x (0; . + $x)');
+  assert.equal(noExtract.extract, null);
+});
+
+test('as binds over the rest of the pipeline', () => {
+  const ast = parse('.a as $x | $x + 1');
+  assert.equal(ast.type, Node.BIND);
+  assert.equal(ast.pattern.name, 'x');
+});
+
+test('a destructuring pattern is refused by name', () => {
+  const error = throwsWith(() => parse('. as [$a] | $a'), ParseError);
+  assert.match(error.message, /destructuring/);
+});
+
+test('def parses, and scopes over what follows the semicolon', () => {
+  const ast = parse('def double: . * 2; double');
+  assert.equal(ast.type, Node.FUNCDEF);
+  assert.equal(ast.name, 'double');
+  assert.equal(ast.rest.type, Node.CALL);
+});
+
+test('def parameters are distinguished by their sigil', () => {
+  const filter = parse('def f(g): g; f(.)');
+  assert.equal(filter.params[0].isValue, false);
+
+  const byValue = parse('def f($x): $x; f(1)');
+  assert.equal(byValue.params[0].isValue, true);
+});
+
+test('a def with no body after it is still valid', () => {
+  const ast = parse('def f: 1;');
+  assert.equal(ast.rest.type, Node.IDENTITY);
+});
+
