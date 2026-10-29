@@ -187,3 +187,48 @@ test('-j drops the trailing newline', async () => {
   assert.equal(result.out, 'x');
 });
 
+test('a file is read when given', async () => {
+  const result = await cli(['.a', 'in.json'], { files: { 'in.json': '{"a":7}' } });
+  assert.equal(result.out, '7\n');
+});
+
+test('several files are concatenated', async () => {
+  const result = await cli(['.a', 'one.json', 'two.json'], {
+    files: { 'one.json': '{"a":1}', 'two.json': '{"a":2}' },
+  });
+  assert.equal(result.out, '1\n2\n');
+});
+
+test('a missing file is reported without a stack trace', async () => {
+  const result = await cli(['.', 'nope.json']);
+  assert.equal(result.code, 2);
+  assert.match(result.err, /no such file/);
+});
+
+test('--arg is visible as a variable', async () => {
+  const result = await cli(['--arg', 'who', 'world', '-r', '"hi \\($who)"'], { stdin: 'null' });
+  assert.equal(result.out, 'hi world\n');
+});
+
+test('$ENV and $ARGS are available', async () => {
+  const env = await cli(['-n', '$ENV | type']);
+  assert.equal(env.out, '"object"\n');
+
+  const args = await cli(['-n', '$ARGS.positional', '--args', 'a', 'b']);
+  assert.equal(args.out, '["a","b"]\n');
+});
+
+test('output is compact when piped and pretty at a terminal', async () => {
+  const piped = await cli(['.'], { stdin: '{"a":1}', isTty: false });
+  assert.equal(piped.out, '{"a":1}\n');
+
+  const terminal = await cli(['.'], { stdin: '{"a":1}', isTty: true });
+  assert.match(terminal.out, /\n/);
+  assert.match(terminal.out, /"a"/);
+});
+
+test('-S sorts object keys', async () => {
+  const result = await cli(['-S', '.'], { stdin: '{"b":1,"a":2}' });
+  assert.equal(result.out, '{"a":2,"b":1}\n');
+});
+
