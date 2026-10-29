@@ -198,3 +198,47 @@ test('tsv escapes tabs and newlines rather than quoting', () => {
   output('@tsv', [1, null, 'x'], '1\t\tx');
 });
 
+test('html escapes the five characters that matter', () => {
+  output('@html', '<a href="x">&\'</a>', '&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;');
+});
+
+test('uri escapes the characters encodeURIComponent leaves alone', () => {
+  output('@uri', 'a b', 'a%20b');
+  output('@uri', 'a&b=c', 'a%26b%3Dc');
+  // encodeURIComponent leaves these, and they are reserved in a query string.
+  output('@uri', "!'()*", '%21%27%28%29%2A');
+});
+
+test('sh quotes for a shell, escaping inner quotes', () => {
+  output('@sh', 'a b', "'a b'");
+  output('@sh', "it's", "'it'\\''s'");
+  output('@sh', ['a', 'b c'], "'a' 'b c'");
+});
+
+test('base64 round-trips, including non-ASCII', () => {
+  output('@base64', 'hi', 'aGk=');
+  output('@base64 | @base64d', 'hello é', 'hello é');
+  fails('@base64d', 42, /@base64d needs a string/);
+});
+
+test('a format applied to an interpolated string formats only the parts', () => {
+  // The point of the form: the literal ?q= must not be escaped.
+  output('@uri "?q=\\(.term)"', { term: 'a b' }, '?q=a%20b');
+  output('@base64 "v=\\(.x)"', { x: 'hi' }, 'v=aGk=');
+});
+
+test('an unknown format lists the real ones', () => {
+  fails('@nope', null, /not a known format/);
+  fails('@nope', null, /base64/);
+});
+
+test('string interpolation stringifies without quoting strings', () => {
+  output('"a\\(.x)b"', { x: 'Y' }, 'aYb');
+  output('"n=\\(.n)"', { n: 1 }, 'n=1');
+  output('"v=\\(.v)"', { v: [1, 2] }, 'v=[1,2]');
+  output('"v=\\(.v)"', { v: null }, 'v=null');
+});
+
+test('interpolation expands a multi-output expression', () => {
+  outputs('"v=\\(1, 2)"', null, ['v=1', 'v=2']);
+});
