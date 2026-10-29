@@ -1,0 +1,42 @@
+{
+  "name": "@raqueeb/lens",
+  "version": "0.1.0",
+  "description": "A JSON query language and transform engine with no dependencies",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "bin": {
+    "lens": "./bin/lens.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "test:watch": "node --test --watch \"test/*.test.js\"",
+    "bench": "node bench/run.js",
+    "lint": "node tools/lint.js"
+  },
+  "files": [
+    "src/",
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "json",
+    "query",
+    "jq",
+    "transform",
+    "zero-dependencies"
+  ],
+  "author": "Mohammed Abdul Raqueeb",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mohammed-Abdul-Raqueeb/lens.git"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
