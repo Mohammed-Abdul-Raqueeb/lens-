@@ -115,3 +115,84 @@ A bare scalar becomes a key with a `null` value, which makes
 requirement, not tidiness: deleting `[0]` then `[1]` one at a time removes the
 first and *third* elements, because the first delete shifts the array.
 
+## Strings
+
+| Function | What it does |
+| --- | --- |
+| `tostring` | A string stays itself; everything else becomes JSON |
+| `tojson`, `fromjson` | Always JSON, including quotes on strings |
+| `tonumber` | From a number or a numeric string |
+| `ascii_downcase`, `ascii_upcase` | **ASCII only**, on purpose |
+| `ascii` | A code point to a character |
+| `explode`, `implode` | To and from code points |
+| `split(sep)`, `split(re; flags)` | Literal, or by regex |
+| `join(sep)` | Scalars only; containers are an error |
+| `ltrimstr`, `rtrimstr`, `trimstr` | Pass non-strings through unchanged |
+| `ltrim`, `rtrim`, `trim` | Whitespace; a non-string is an error |
+| `startswith`, `endswith` | |
+| `contains(x)`, `inside(c)` | Substring, subset or submap |
+
+**Case conversion is ASCII-only** because `toLowerCase` is locale-sensitive —
+Turkish dotless `i` is the usual example — and a query whose result depends on
+the machine's locale is not reproducible.
+
+**`tonumber` refuses the empty string.** `Number("")` is `0`, which is a
+silent wrong answer in exactly the case a CSV import produces.
+
+**`ltrimstr` passes non-strings through** rather than erroring, which makes
+`.[] | ltrimstr("v")` safe over a mixed array. `trim` does error, because
+there is no sensible non-string reading of it.
+
+## Regular expressions
+
+| Function | What it does |
+| --- | --- |
+| `test(re)`, `test(re; flags)` | Whether it matches |
+| `match(re)`, `match(re; flags)` | Offsets, lengths and captures |
+| `capture(re)` | Named groups as an object |
+| `scan(re)` | Whole matches, or the groups when there are groups |
+| `splits(re)` | Split, as a stream |
+| `sub(re; f)`, `gsub(re; f)` | Replace the first, or all |
+
+Flags: `g` global, `i` case-insensitive, `x` extended, `s`/`m` dot matches
+newline, `n` ignore empty matches, `p` both.
+
+**A substitution's replacement is a filter**, running with the named captures
+as its input:
+
+```bash
+$ lens -rn '"a1b2" | gsub("(?<d>[0-9])"; "[\(.d)]")'
+a[1]b[2]
+```
+
+## Numbers
+
+`floor`, `ceil`, `round`, `fabs`, `abs`, `sqrt`, `pow(a;b)`, `log`, `log2`,
+`log10`, `exp`, `exp2`, `exp10`, `isnan`, `isinfinite`, `isnormal`.
+
+`sqrt` of a negative number is an error rather than `NaN`, because `NaN` has
+no JSON form and would fail at output time instead — a long way from the call
+that produced it.
+
+## Formats
+
+`@text`, `@json`, `@csv`, `@tsv`, `@html`, `@uri`, `@sh`, `@base64`,
+`@base64d`.
+
+Applied to an interpolated string, a format applies to the **interpolated
+parts only**:
+
+```bash
+$ lens -rn '{"term":"a b"} | @uri "?q=\(.term)"'
+?q=a%20b
+```
+
+The `?` and `=` are left alone, which is the entire point of the form.
+
+`@tsv` escapes tabs and newlines rather than quoting, because TSV has no
+quoting — a raw tab in a cell would silently become a new column.
+
+## Environment
+
+`env` is the process environment as an object; `$ENV` is the same thing as a
+variable. `builtins` lists every registered function.
