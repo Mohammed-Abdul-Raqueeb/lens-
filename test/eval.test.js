@@ -245,3 +245,38 @@ test('try without a catch swallows the error', () => {
   outputs('try error("boom")', null, []);
 });
 
+test('try does not catch what it should not', () => {
+  output('try 1 catch "no"', null, 1);
+});
+
+test('reduce folds, and the last update output wins', () => {
+  output('reduce .[] as $x (0; . + $x)', [1, 2, 3], 6);
+  output('reduce .[] as $x (0; . + $x)', [], 0);
+});
+
+test('a reduce whose update yields nothing collapses to null', () => {
+  // jq's behaviour and a common surprise, so it is pinned rather than left
+  // to be discovered.
+  output('reduce .[] as $x (0; empty)', [1], null);
+});
+
+test('foreach emits the accumulator at every step', () => {
+  output('[foreach .[] as $x (0; . + $x)]', [1, 2, 3], [1, 3, 6]);
+});
+
+test('foreach with an extract emits that instead', () => {
+  output('[foreach .[] as $x (0; . + $x; {sum: .})]', [1, 2], [{ sum: 1 }, { sum: 3 }]);
+});
+
+test('as binds a variable over the rest of the pipeline', () => {
+  output('.a as $x | .b + $x', { a: 1, b: 2 }, 3);
+});
+
+test('as runs its body once per source output', () => {
+  outputs('(1, 2) as $x | $x * 10', null, [10, 20]);
+});
+
+test('an undefined variable is an error naming it', () => {
+  fails('$nope', null, /\$nope is not defined/);
+});
+
