@@ -104,3 +104,68 @@ failing halfway.
 **Nothing is mutated.** `.a = 1` returns a new document sharing every
 untouched subtree with the old one.
 
+## Why no dependencies
+
+A query library gets embedded in other people's tools, and every dependency it
+carries becomes a version conflict in their build. The cost is paid here
+instead.
+
+The honest accounting: it cost less than it usually does, because Node has a
+test runner built in. What it did cost is a 120-line hand-written linter, and
+the linter exists mostly to check the no-dependency promise itself — a promise
+with nothing enforcing it is one that gets broken by accident. The regex
+engine is `RegExp` from the host, which is the one place this leans on
+something substantial; writing one would have been a larger project than this.
+
+If you do not need zero dependencies, `jq` is faster and far more battle-worn,
+and `node-jq` wraps it.
+
+## Build and test
+
+```bash
+npm test          # 277 tests, node:test, no runner to install
+npm run lint      # the house rules, including the dependency check
+npm run bench     # timings, median of 9 samples
+```
+
+CI runs the suite on Node 20, 22 and 24 on Linux plus one version each on
+Windows and macOS, asserts that `package.json` declares nothing and that every
+import is `node:` or relative, and drives the real binary end to end.
+
+## What is in here
+
+| | |
+| --- | --- |
+| Source | 16 files, ~5,700 lines |
+| Tests | 7 files, 277 cases |
+| Dependencies | 0 |
+
+```
+src/
+  lexer.js      text to tokens
+  parser.js     tokens to a tree, one function per precedence level
+  ast.js        node constructors
+  eval.js       the evaluator -- every expression is a generator
+  values.js     equality, the total order, truthiness
+  paths.js      reading and writing at a path, without mutating
+  format.js     rendering, with colour and a layout JSON.stringify will not do
+  cli.js        flags and input handling; returns an exit code
+  builtins/     core, arrays, strings, objects -- around 90 functions
+```
+
+## Limitations
+
+- **No destructuring.** `. as [$a, $b]` is refused by name rather than
+  misparsed.
+- **No modules, no `input`/`inputs`, no date functions.** The first two need
+  an input stream the evaluator deliberately does not have; the third is
+  omitted rather than half-done, because time zones make a half-done version
+  actively wrong.
+- **Assignment re-walks its target per path.** Fine for a handful, quadratic
+  for `.[] |= f` over a very large array.
+- **Deep recursion is bounded at 200 levels** in the parser, and the loop
+  builtins stop after a million steps. Both are reported rather than hanging.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
