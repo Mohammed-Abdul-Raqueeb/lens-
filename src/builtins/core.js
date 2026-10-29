@@ -198,3 +198,72 @@ const recurse1 = function* recurse1(node, input, env) {
   }
 };
 
+/** `recurse(f; cond)` — as above, stopping where `cond` is false. */
+const recurse2 = function* recurse2(node, input, env) {
+  yield input;
+  for (const child of evaluate(node.args[0], input, env)) {
+    let keep = false;
+    for (const test of evaluate(node.args[1], child, env)) {
+      if (truthy(test)) keep = true;
+      break;
+    }
+    if (keep) yield* recurse2(node, child, env);
+  }
+};
+
+/** `range(n)` — 0 up to but not including n. */
+const range1 = valuedStreaming(1, function* body(input, [to], context) {
+  requireType(to, 'number', 'range', context);
+  for (let i = 0; i < to; i++) yield i;
+});
+
+/** `range(from; to)` */
+const range2 = valuedStreaming(2, function* body(input, [from, to], context) {
+  requireType(from, 'number', 'range', context);
+  requireType(to, 'number', 'range', context);
+  for (let i = from; i < to; i++) yield i;
+});
+
+/** `range(from; to; step)` — counts down when the step is negative. */
+const range3 = valuedStreaming(3, function* body(input, [from, to, step], context) {
+  requireType(step, 'number', 'range', context);
+  if (step === 0) {
+    // An infinite generator is worse than an error here: the process would
+    // hang with no output and no indication why.
+    fail(context, 'range with a step of 0 would never finish');
+  }
+  if (step > 0) {
+    for (let i = from; i < to; i += step) yield i;
+  } else {
+    for (let i = from; i > to; i += step) yield i;
+  }
+});
+
+const numeric = (name, fn) => simple((input, context) => {
+  requireType(input, 'number', name, context);
+  return fn(input);
+});
+
+const floor = numeric('floor', Math.floor);
+const ceil = numeric('ceil', Math.ceil);
+const round = numeric('round', Math.round);
+const fabs = numeric('fabs', Math.abs);
+const sqrt = numeric('sqrt', (value) => {
+  // NaN has no JSON form, so a negative input is an error here rather than a
+  // value that fails at output time.
+  if (value < 0) throw new RangeError('sqrt of a negative number');
+  return Math.sqrt(value);
+});
+const log = numeric('log', Math.log);
+const log2 = numeric('log2', Math.log2);
+const log10 = numeric('log10', Math.log10);
+const exp = numeric('exp', Math.exp);
+const exp2 = numeric('exp2', (value) => 2 ** value);
+const exp10 = numeric('exp10', (value) => 10 ** value);
+
+const pow = valued(2, (input, [base, exponent], context) => {
+  requireType(base, 'number', 'pow', context);
+  requireType(exponent, 'number', 'pow', context);
+  return base ** exponent;
+});
+
