@@ -1,0 +1,196 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Lets a run be started by hand. The push that creates a repository's
+  # default branch does not itself trigger a workflow, so without this a fresh
+  # clone has a CI badge that has never been green.
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One failing combination should not hide the others.
+      fail-fast: false
+      matrix:
+        include:
+          # 20 is the floor: the test runner and `node --test` glob support
+          # are what the suite relies on.
+          - os: ubuntu-latest
+            node: '20'
+          - os: ubuntu-latest
+            node: '22'
+          - os: ubuntu-latest
+            node: '24'
+          # One version each on the other platforms. The CLI touches paths and
+          # stdio, which differ enough per platform to be worth checking;
+          # running the full matrix everywhere would triple the bill for very
+          # little more information.
+          - os: windows-latest
+            node: '22'
+          - os: macos-latest
+            node: '22'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # No `npm ci`: there is no lock file because there are no dependencies.
+      - name: Test
+        run: node --test "test/*.test.js"
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node tools/lint.js
+
+  dependencies:
+    name: Dependency count is zero
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Assert package.json declares nothing
+        run: |
+          node -e '
+            const pkg = require("./package.json");
+            const deps = {
+              ...pkg.dependencies,
+              ...pkg.devDependencies,
+              ...pkg.peerDependencies,
+              ...pkg.optionalDependencies,
+            };
+            const names = Object.keys(deps);
+            if (names.length > 0) {
+              console.error("declared dependencies: " + names.join(", "));
+              process.exit(1);
+            }
+            console.log("package.json declares no dependencies");
+          '
+
+      - name: Assert there is no lock file and no node_modules
+        run: |
+          for unwanted in package-lock.json npm-shrinkwrap.json yarn.lock pnpm-lock.yaml node_modules; do
+            if [ -e "$unwanted" ]; then
+              echo "found $unwanted; this project has no dependencies"
+              exit 1
+            fi
+          done
+          echo "no lock file and no installed packages"
+
+      - name: Assert every import is node: or relative
+        run: |
+          # The project's one hard promise, and a promise with nothing
+          # checking it is one that gets broken by accident.
+          #
+          # sed rather than grep -P: the PCRE flag depends on the locale and
+          # fails outright under a non-UTF-8 one, which would make this check
+          # pass silently rather than fail loudly.
+          grep -rhoE "from '[^']+'" --include='*.js' src/ bin/ test/ tools/ bench/ \
+            | sed -E "s/from '//; s/'$//" \
+            | grep -vE '^node:' \
+            | grep -vE '^\.' \
+            | sort -u > foreign-imports.txt
+          if [ -s foreign-imports.txt ]; then
+            echo "imports from outside the standard library:"
+            cat foreign-imports.txt
+            exit 1
+          fi
+          echo "every import is node: or relative"
+
+  smoke:
+    name: End-to-end smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Exercise the command line
+        run: |
+          set -euo pipefail
+          lens() { node bin/lens.js "$@"; }
+
+          echo "--- version ---"
+          lens --version | grep -q '^lens [0-9]'
+
+          echo "--- a query against piped input ---"
+          echo '{"a":[1,2,3]}' | lens '.a | add' | grep -qx '6'
+
+          echo "--- null input, no stdin at all ---"
+          lens -n '[range(5)] | map(. * .)' | grep -qxF '[0,1,4,9,16]'
+
+          echo "--- raw output drops the quotes ---"
+          echo '{"n":"x"}' | lens -r '.n' | grep -qx 'x'
+
+          echo "--- arguments reach the query ---"
+          echo 'null' | lens --arg w world -r '"hi \(\$w)"' | grep -qx 'hi world'
+
+          echo "--- slurp folds a stream into one array ---"
+          printf '1\n2\n3\n' | lens -s 'add' | grep -qx '6'
+
+          echo "--- a scalar array stays on one line when pretty ---"
+          echo '{"a":[1,2,3]}' | lens -p '.' | grep -q '"a": \[1, 2, 3\]'
+
+          echo "--- builtins are discoverable ---"
+          test "$(lens --builtins | wc -l)" -gt 60
+
+          echo "--- a parse error exits 3 and draws a caret ---"
+          if echo '{}' | lens '.a |' 2>err.txt; then
+            echo "a bad query should have failed"; exit 1
+          fi
+          grep -q 'ParseError' err.txt
+          grep -q '\^' err.txt
+
+          echo "--- a runtime error exits 5, distinctly ---"
+          set +e
+          echo '{"a":"text"}' | lens '.a + 1' 2>/dev/null
+          code=$?
+          set -e
+          test "$code" = "5"
+
+          echo "--- exit status reflects the last output ---"
+          set +e
+          echo '{"a":false}' | lens -e '.a' >/dev/null
+          test "$?" = "1"
+          echo '{"a":1}' | lens -e '.a' >/dev/null
+          test "$?" = "0"
+          set -e
+
+          echo "All smoke checks passed."
+
+  bench:
+    name: Benchmarks run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Not checked for speed -- a shared runner's numbers mean nothing. This
+      # only asserts the benchmarks still execute, so they cannot rot into
+      # something that no longer runs at all.
+      - run: node bench/run.js
