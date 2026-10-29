@@ -104,3 +104,97 @@ const inside = valued(1, (input, [container], context) => {
   return fail(context, `in needs an array or an object, not ${typeName(container)}`, container);
 });
 
+const typeOf = simple((input) => typeName(input));
+
+/** `empty` — yields nothing. The identity of `,` and the way to drop a value. */
+const empty = streaming(function* body() {
+  // Intentionally yields nothing.
+});
+
+/**
+ * `error` — raises its input as an error.
+ *
+ * Takes the input rather than a string so `error` can be piped to:
+ * `.message | error`. The one-argument form is sugar for `error(m)`.
+ */
+const error0 = streaming((input, context) => {
+  fail(context, typeof input === 'string' ? input : JSON.stringify(input) ?? 'null', input);
+  return [];
+});
+
+const error1 = valuedStreaming(1, (input, [message], context) => {
+  fail(context, typeof message === 'string' ? message : JSON.stringify(message) ?? 'null', message);
+  return [];
+});
+
+/** `select(f)` — keeps the input when `f` is truthy, drops it otherwise. */
+const select = function* select(node, input, env) {
+  for (const kept of evaluate(node.args[0], input, env)) {
+    if (truthy(kept)) yield input;
+  }
+};
+
+/** `map(f)` — `f` applied to each element, collected into an array. */
+const map = function* map(node, input, env) {
+  if (Array.isArray(input)) {
+    const out = [];
+    for (const element of input) {
+      out.push(...evaluate(node.args[0], element, env));
+    }
+    yield out;
+    return;
+  }
+  if (input !== null && typeof input === 'object') {
+    // map over an object maps its values and yields an array, which is what
+    // `[.[] | f]` means and what jq does.
+    const out = [];
+    for (const key of Object.keys(input)) {
+      out.push(...evaluate(node.args[0], input[key], env));
+    }
+    yield out;
+    return;
+  }
+  fail({ node, env }, `map needs an array or an object, not ${typeName(input)}`, input);
+};
+
+/**
+ * `map_values(f)` — `f` applied to each value, keeping the container's shape.
+ *
+ * Distinct from `map` in two ways that both matter: an object stays an object,
+ * and a value for which `f` yields nothing is removed rather than dropped
+ * silently from a flattened array.
+ */
+const mapValues = function* mapValues(node, input, env) {
+  if (Array.isArray(input)) {
+    const out = [];
+    for (const element of input) {
+      for (const replacement of evaluate(node.args[0], element, env)) {
+        out.push(replacement);
+        break;
+      }
+    }
+    yield out;
+    return;
+  }
+  if (input !== null && typeof input === 'object') {
+    const out = {};
+    for (const key of Object.keys(input)) {
+      for (const replacement of evaluate(node.args[0], input[key], env)) {
+        out[key] = replacement;
+        break;
+      }
+    }
+    yield out;
+    return;
+  }
+  fail({ node, env }, `map_values needs an array or an object, not ${typeName(input)}`, input);
+};
+
+/** `recurse(f)` — the input, then `f` applied repeatedly until it yields nothing. */
+const recurse1 = function* recurse1(node, input, env) {
+  yield input;
+  for (const child of evaluate(node.args[0], input, env)) {
+    yield* recurse1(node, child, env);
+  }
+};
+
