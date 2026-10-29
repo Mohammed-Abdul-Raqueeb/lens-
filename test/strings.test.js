@@ -113,3 +113,44 @@ test('test reports a match without returning it', () => {
   fails('test("a")', 42, /test needs a string/);
 });
 
+test('an uncompilable pattern is reported, not thrown raw', () => {
+  fails('test("(")', 'abc', /could not compile/);
+});
+
+test('an unknown regex flag is named', () => {
+  fails('test("a"; "Z")', 'abc', /does not understand the flag/);
+});
+
+test('match returns offsets, lengths and captures', () => {
+  const [found] = query('match("b")', 'abc');
+  assert.equal(found.offset, 1);
+  assert.equal(found.length, 1);
+  assert.equal(found.string, 'b');
+});
+
+test('a global match finds every occurrence', () => {
+  output('[match("a"; "g") | .offset]', 'aba', [0, 2]);
+});
+
+test('a global match of an empty pattern terminates', () => {
+  // Without the explicit advance on a zero-length match this loops for ever.
+  const results = query('[match("x*"; "g") | .offset]', 'ab');
+  assert.ok(Array.isArray(results[0]));
+});
+
+test('capture returns named groups as an object', () => {
+  output('capture("(?<y>[0-9]{4})")', 'in 2026', { y: '2026' });
+  output('[capture("(?<a>x)"; "g")]', 'xx', [{ a: 'x' }, { a: 'x' }]);
+});
+
+test('scan yields whole matches, or the groups when there are groups', () => {
+  // Both behaviours are wanted, which is why it switches.
+  output('[scan("[0-9]+")]', 'a1b22', ['1', '22']);
+  output('[scan("([a-z])([0-9])")]', 'a1b2', [['a', '1'], ['b', '2']]);
+});
+
+test('splits and the two-argument split use a regex', () => {
+  output('[splits(",")]', 'a,b', ['a', 'b']);
+  output('split("[,;]"; null)', 'a,b;c', ['a', 'b', 'c']);
+});
+
