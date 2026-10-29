@@ -61,3 +61,32 @@ export const index = (indexExpr, optional = false, offset = -1) =>
 export const slice = (from, to, optional = false, offset = -1) =>
   ({ type: Node.SLICE, from, to, optional, offset });
 
+/** `.[]` — every element of an array, or every value of an object. */
+export const iterate = (optional = false, offset = -1) =>
+  ({ type: Node.ITERATE, optional, offset });
+
+/** `a | b` — feeds each output of `a` into `b`. */
+export const pipe = (left, right, offset = -1) =>
+  ({ type: Node.PIPE, left, right, offset });
+
+/** `a, b` — yields everything `a` yields, then everything `b` yields. */
+export const comma = (left, right, offset = -1) =>
+  ({ type: Node.COMMA, left, right, offset });
+
+/** A constant: a number, string, boolean or null. */
+export const literal = (value, offset = -1) =>
+  ({ type: Node.LITERAL, value, offset });
+
+/** `[expr]` — collects everything `expr` yields into an array. */
+export const array = (body, offset = -1) =>
+  ({ type: Node.ARRAY, body, offset });
+
+/**
+ * `{a: b, ...}` — builds an object.
+ *
+ * Entries are `{key, value}` where both are expressions, because a key can be
+ * computed: `{(.name): .value}` is legal and common.
+ */
+export const object = (entries, offset = -1) =>
+  ({ type: Node.OBJECT, entries, offset });
+
