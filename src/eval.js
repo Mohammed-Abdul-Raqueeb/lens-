@@ -513,3 +513,142 @@ function multiply(node, left, right, env) {
   );
 }
 
+function deepMerge(left, right) {
+  const out = { ...left };
+  for (const key of Object.keys(right)) {
+    const a = out[key];
+    const b = right[key];
+    out[key] = isPlainObject(a) && isPlainObject(b) ? deepMerge(a, b) : b;
+  }
+  return out;
+}
+
+function divide(node, left, right, env) {
+  if (typeof left === 'number' && typeof right === 'number') {
+    if (right === 0) {
+      // An error rather than Infinity, because Infinity has no JSON
+      // representation and would fail at output time instead -- a long way
+      // from the division that caused it.
+      throw failure(node, env, `cannot divide ${describe(left)} by zero`, left);
+    }
+    return left / right;
+  }
+  if (typeof left === 'string' && typeof right === 'string') {
+    return left.split(right);
+  }
+  throw failure(node, env, `cannot divide ${typeName(left)} by ${typeName(right)}`, left);
+}
+
+function modulo(node, left, right, env) {
+  if (typeof left !== 'number' || typeof right !== 'number') {
+    throw failure(node, env, `cannot take ${typeName(left)} modulo ${typeName(right)}`, left);
+  }
+  const divisor = Math.trunc(right);
+  if (divisor === 0) {
+    throw failure(node, env, `cannot take ${describe(left)} modulo zero`, left);
+  }
+  // Truncated towards zero on both sides, so the result has the sign of the
+  // left operand. That matches C and jq; JavaScript's % already does this,
+  // but the truncation of the operands does not happen on its own.
+  return Math.trunc(left) % divisor;
+}
+
+function* evalAlternative(node, input, env) {
+  let produced = false;
+
+  try {
+    for (const value of evaluate(node.left, input, env)) {
+      if (truthy(value)) {
+        produced = true;
+        yield value;
+      }
+    }
+  } catch (error) {
+    if (!(error instanceof EvalError)) throw error;
+    // An error on the left is the same as producing nothing, which is what
+    // makes `.a.b // "default"` work when `.a` is a string rather than an
+    // object.
+  }
+
+  if (!produced) {
+    yield* evaluate(node.right, input, env);
+  }
+}
+
+function* evalOptional(node, input, env) {
+  // Written as an explicit pull loop rather than a for..of inside a try, so
+  // that values already produced are still yielded when a later one throws.
+  // `(.[] | .a)?` over a mixed array should emit the ones that worked.
+  const iterator = evaluate(node.body, input, env)[Symbol.iterator]();
+  while (true) {
+    let step;
+    try {
+      step = iterator.next();
+    } catch (error) {
+      if (error instanceof EvalError) return;
+      throw error;
+    }
+    if (step.done) return;
+    yield step.value;
+  }
+}
+
+function* evalTry(node, input, env) {
+  const iterator = evaluate(node.body, input, env)[Symbol.iterator]();
+  while (true) {
+    let step;
+    try {
+      step = iterator.next();
+    } catch (error) {
+      if (!(error instanceof EvalError)) throw error;
+      if (node.handler) {
+        // The handler receives the error's message as its input, which is how
+        // `try .a catch "failed: \(.)"` reads.
+        yield* evaluate(node.handler, error.message, env);
+      }
+      return;
+    }
+    if (step.done) return;
+    yield step.value;
+  }
+}
+
+function* evalReduce(node, input, env) {
+  for (const seed of evaluate(node.init, input, env)) {
+    let accumulator = seed;
+
+    for (const item of evaluate(node.source, input, env)) {
+      const scoped = env.withVar(node.pattern.name, item);
+      // The last output of the update wins. An update yielding nothing
+      // collapses the accumulator to null, which is jq's behaviour and a
+      // common source of surprise -- `reduce .[] as $x (0; empty)` is null,
+      // not 0.
+      let next = null;
+      for (const candidate of evaluate(node.update, accumulator, scoped)) {
+        next = candidate;
+      }
+      accumulator = next;
+    }
+
+    yield accumulator;
+  }
+}
+
+function* evalForeach(node, input, env) {
+  for (const seed of evaluate(node.init, input, env)) {
+    let accumulator = seed;
+
+    for (const item of evaluate(node.source, input, env)) {
+      const scoped = env.withVar(node.pattern.name, item);
+      for (const candidate of evaluate(node.update, accumulator, scoped)) {
+        accumulator = candidate;
+        if (node.extract) {
+          yield* evaluate(node.extract, accumulator, scoped);
+        } else {
+          yield accumulator;
+        }
+      }
+    }
+  }
+}
+
