@@ -343,3 +343,45 @@ const match1 = valuedStreaming(1, function* body(input, [pattern], context) {
   yield* matchesOf(input, pattern, null, context, 'match');
 });
 
+const match2 = valuedStreaming(2, function* body(input, [pattern, flags], context) {
+  yield* matchesOf(input, pattern, flags, context, 'match');
+});
+
+/** `capture` — the named groups of a match, as an object. */
+const capture1 = valuedStreaming(1, function* body(input, [pattern], context) {
+  yield* capturesOf(input, pattern, null, context);
+});
+
+const capture2 = valuedStreaming(2, function* body(input, [pattern, flags], context) {
+  yield* capturesOf(input, pattern, flags, context);
+});
+
+function* capturesOf(input, pattern, flags, context) {
+  for (const found of matchesOf(input, pattern, flags, context, 'capture')) {
+    const out = {};
+    for (const capture of found.captures) {
+      if (capture.name !== null) out[capture.name] = capture.string;
+    }
+    yield out;
+  }
+}
+
+const scan1 = valuedStreaming(1, function* body(input, [pattern], context) {
+  yield* scanOf(input, pattern, 'g', context);
+});
+
+const scan2 = valuedStreaming(2, function* body(input, [pattern, flags], context) {
+  yield* scanOf(input, pattern, `${flags}g`, context);
+});
+
+function* scanOf(input, pattern, flags, context) {
+  for (const found of matchesOf(input, pattern, flags, context, 'scan')) {
+    // The whole match when there are no groups, the groups when there are,
+    // which is what makes `scan("\\d+")` and `scan("(\\w)=(\\w)")` both
+    // useful without a wrapper.
+    yield found.captures.length === 0
+      ? found.string
+      : found.captures.map((capture) => capture.string);
+  }
+}
+
