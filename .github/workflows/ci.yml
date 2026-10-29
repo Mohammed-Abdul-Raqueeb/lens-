@@ -100,7 +100,7 @@ jobs:
           done
           echo "no lock file and no installed packages"
 
-      - name: Assert every import is node: or relative
+      - name: "Assert every import is node: or relative"
         run: |
           # The project's one hard promise, and a promise with nothing
           # checking it is one that gets broken by accident.
