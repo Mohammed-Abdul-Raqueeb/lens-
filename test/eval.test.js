@@ -280,3 +280,41 @@ test('an undefined variable is an error naming it', () => {
   fails('$nope', null, /\$nope is not defined/);
 });
 
+test('variables can be supplied from outside', () => {
+  assert.deepEqual(query('$x + 1', null, { vars: { x: 41 } }), [42]);
+});
+
+test('a function definition is in scope after its semicolon', () => {
+  output('def double: . * 2; double', 5, 10);
+});
+
+test('a function can recurse', () => {
+  output('def fact: if . <= 1 then 1 else . * (. - 1 | fact) end; fact', 5, 120);
+});
+
+test('a filter parameter is a closure over the caller', () => {
+  output('def apply(f): f; .a as $v | apply($v + 1)', { a: 1 }, 2);
+});
+
+test('a value parameter is evaluated once in the caller', () => {
+  output('def f($x): $x + $x; f(1 + 1)', null, 4);
+});
+
+test('an unknown function is an error, suggesting another arity', () => {
+  fails('nosuchthing', null, /nosuchthing is not defined/);
+  // `map` exists with one argument, so calling it with none says so.
+  fails('map', null, /not defined with 0 arguments.*but is with 1/);
+});
+
+test('an error carries the offset of the expression that failed', () => {
+  const error = fails('.a | .b.c', { a: { b: 42 } }, /cannot read the field/);
+  assert.ok(error instanceof EvalError);
+  assert.ok(error.offset > 0, 'the offset points past the start');
+});
+
+test('a formatted runtime error draws a caret', () => {
+  const error = fails('.a + 1', { a: 'text' }, /cannot add/);
+  const lines = error.format().split('\n');
+  assert.equal(lines.length, 3);
+  assert.match(lines[2], /^\s+\^$/);
+});
