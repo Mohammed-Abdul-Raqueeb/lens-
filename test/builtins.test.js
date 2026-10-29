@@ -95,3 +95,65 @@ test('range counts up, down and refuses a zero step', () => {
   fails('[range(0; 5; 0)]', null, /never finish/);
 });
 
+test('the arithmetic builtins check their input type', () => {
+  output('floor', 1.7, 1);
+  output('ceil', 1.2, 2);
+  output('round', 1.5, 2);
+  output('fabs', -3, 3);
+  output('abs', -3, 3);
+  output('sqrt', 9, 3);
+  output('pow(2; 10)', null, 1024);
+  output('log2', 8, 3);
+  fails('floor', 'x', /floor needs a number/);
+});
+
+test('sqrt of a negative is an error rather than NaN', () => {
+  // NaN has no JSON form, so it would fail at output time instead.
+  fails('sqrt', -1, /sqrt/);
+});
+
+test('the number predicates classify without throwing', () => {
+  output('isnan', 1, false);
+  output('isinfinite', 1, false);
+  output('isnormal', 1, true);
+  output('isnormal', 0, false);
+  output('isnan', 'text', false);
+});
+
+test('isvalid reports whether a filter would fail', () => {
+  output('isvalid(.a)', { a: 1 }, true);
+  output('isvalid(.a)', 42, false);
+});
+
+test('sort uses the total order', () => {
+  output('sort', [3, 1, 2], [1, 2, 3]);
+  output('sort', ['b', 'a'], ['a', 'b']);
+  // Mixed types sort by type rank rather than erroring, which is what makes
+  // sorting a real document possible.
+  output('sort', [1, null, 'a', true], [null, true, 1, 'a']);
+  fails('sort', 42, /sort needs an array/);
+});
+
+test('sort_by is stable, which is what makes multi-level sorting work', () => {
+  const input = [
+    { k: 1, id: 'a' },
+    { k: 0, id: 'b' },
+    { k: 1, id: 'c' },
+    { k: 0, id: 'd' },
+  ];
+  output('[sort_by(.k)[] | .id]', input, ['b', 'd', 'a', 'c']);
+});
+
+test('sort_by on several keys orders by all of them', () => {
+  const input = [{ a: 1, b: 2 }, { a: 1, b: 1 }, { a: 0, b: 9 }];
+  output('[sort_by(.a, .b)[] | .b]', input, [9, 1, 2]);
+});
+
+test('group_by groups every occurrence of a key', () => {
+  output(
+    'group_by(.t) | map(map(.id))',
+    [{ t: 'a', id: 1 }, { t: 'b', id: 2 }, { t: 'a', id: 3 }],
+    [[1, 3], [2]],
+  );
+});
+
