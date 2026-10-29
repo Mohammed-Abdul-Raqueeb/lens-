@@ -138,3 +138,99 @@ const uniqueBy = function* uniqueBy(node, input, env) {
   yield out;
 };
 
+const reverse = simple((input, context) => {
+  if (input === null) return [];
+  if (typeof input === 'string') return [...input].reverse().join('');
+  requireType(input, 'array', 'reverse', context);
+  return [...input].reverse();
+});
+
+/**
+ * `min` and `max` on an empty array are null, not an error.
+ *
+ * That makes `[.items[] | .price] | min` safe against an empty list, which is
+ * the case a report query hits first.
+ */
+const min = simple((input, context) => {
+  requireType(input, 'array', 'min', context);
+  if (input.length === 0) return null;
+  return input.reduce((best, element) => (compare(element, best) < 0 ? element : best));
+});
+
+const max = simple((input, context) => {
+  requireType(input, 'array', 'max', context);
+  if (input.length === 0) return null;
+  return input.reduce((best, element) => (compare(element, best) > 0 ? element : best));
+});
+
+const extremeBy = (builtinName, wanted) => function* body(node, input, env) {
+  const context = { node, env };
+  requireType(input, 'array', builtinName, context);
+  if (input.length === 0) {
+    yield null;
+    return;
+  }
+
+  let bestElement = input[0];
+  let bestKey = keyOf(node.args[0], input[0], env, context, builtinName);
+
+  for (let i = 1; i < input.length; i++) {
+    const key = keyOf(node.args[0], input[i], env, context, builtinName);
+    // Strictly better, so ties keep the earlier element -- which makes the
+    // result stable and matches what `sort_by | first` would give.
+    if (Math.sign(compare(key, bestKey)) === wanted) {
+      bestElement = input[i];
+      bestKey = key;
+    }
+  }
+
+  yield bestElement;
+};
+
+const add = simple((input, context) => {
+  if (input === null) return null;
+
+  let values;
+  if (Array.isArray(input)) {
+    values = input;
+  } else if (typeof input === 'object') {
+    values = Object.keys(input).map((key) => input[key]);
+  } else {
+    return fail(context, `add needs an array or an object, not ${typeName(input)}`, input);
+  }
+
+  if (values.length === 0) return null;
+
+  // Reduced with the language's own `+`, so adding an array of arrays
+  // concatenates and adding an array of objects merges -- the overloading is
+  // the feature, not an accident of implementation.
+  return values.reduce((total, element) => addPair(total, element, context));
+});
+
+function addPair(left, right, context) {
+  if (left === null) return right;
+  if (right === null) return left;
+  if (typeof left === 'number' && typeof right === 'number') return left + right;
+  if (typeof left === 'string' && typeof right === 'string') return left + right;
+  if (Array.isArray(left) && Array.isArray(right)) return [...left, ...right];
+  if (isPlainObject(left) && isPlainObject(right)) return { ...left, ...right };
+  return fail(context, `add cannot combine ${typeName(left)} and ${typeName(right)}`, left);
+}
+
+/**
+ * `any` and `all` on an empty array follow logic rather than intuition.
+ *
+ * `any` of nothing is false and `all` of nothing is true. The second
+ * surprises people, and it is the only answer that keeps
+ * `all(f) and all(g) == all(f and g)` true when either side is empty.
+ */
+const any0 = simple((input, context) => {
+  requireType(input, 'array', 'any', context);
+  return input.some(truthy);
+});
+
+const all0 = simple((input, context) => {
+  requireType(input, 'array', 'all', context);
+  return input.every(truthy);
+});
+
