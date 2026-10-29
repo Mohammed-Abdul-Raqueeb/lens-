@@ -108,3 +108,40 @@ test('an unknown flag is refused rather than ignored', () => {
   assert.match(error.message, /unknown option "--jsno"/);
 });
 
+test('a lone dash is a filename, not a flag', () => {
+  assert.equal(parseArgs(['-']).query, '-');
+});
+
+// ---- the JSON input stream -----------------------------------------------
+
+test('a stream of whitespace-separated values parses', () => {
+  assert.deepEqual(parseJsonStream('1 2 3'), [1, 2, 3]);
+  assert.deepEqual(parseJsonStream('{"a":1}\n{"a":2}'), [{ a: 1 }, { a: 2 }]);
+  assert.deepEqual(parseJsonStream('[1] [2]'), [[1], [2]]);
+});
+
+test('an empty input is no values, not an error', () => {
+  assert.deepEqual(parseJsonStream(''), []);
+  assert.deepEqual(parseJsonStream('  \n '), []);
+});
+
+test('a brace inside a string does not end the value', () => {
+  assert.deepEqual(parseJsonStream('{"a":"}"}'), [{ a: '}' }]);
+  assert.deepEqual(parseJsonStream('{"a":"\\""}'), [{ a: '"' }]);
+});
+
+test('commas between top-level values are tolerated', () => {
+  // A file of records is often a JSON array with its brackets stripped.
+  assert.deepEqual(parseJsonStream('{"a":1},{"a":2}'), [{ a: 1 }, { a: 2 }]);
+});
+
+test('an unterminated value is reported with its offset', () => {
+  const error = throwsWith(() => parseJsonStream('{"a":1'), Error);
+  assert.match(error.message, /unterminated JSON value/);
+});
+
+test('malformed JSON is reported with a preview', () => {
+  const error = throwsWith(() => parseJsonStream('{nope}'), Error);
+  assert.match(error.message, /could not parse JSON/);
+});
+
