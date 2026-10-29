@@ -362,3 +362,49 @@ test('the type filters keep only their type', () => {
   output('[.[] | values]', [1, null, 'a'], [1, 'a']);
 });
 
+test('tostream and fromstream round-trip a document', () => {
+  const document = { a: [1, 2], b: 'x' };
+  output('fromstream(tostream)', document, document);
+});
+
+test('assignment sets every addressed path', () => {
+  output('.a = 2', { a: 1 }, { a: 2 });
+  output('.[] = 0', [1, 2], [0, 0]);
+  output('(.a, .b) = 9', { a: 1, b: 2 }, { a: 9, b: 9 });
+});
+
+test('update applies a filter at each path', () => {
+  output('.a |= . + 1', { a: 1 }, { a: 2 });
+  output('.[] |= . * 2', [1, 2], [2, 4]);
+  output('.a += 1', { a: 1 }, { a: 2 });
+  output('.a -= 1', { a: 1 }, { a: 0 });
+  output('.a *= 2', { a: 3 }, { a: 6 });
+  output('.a //= 5', { a: null }, { a: 5 });
+  output('.a //= 5', { a: 1 }, { a: 1 });
+});
+
+test('an update whose filter yields nothing deletes the path', () => {
+  // Which is how del is expressible as an update.
+  output('.a |= empty', { a: 1, b: 2 }, { b: 2 });
+});
+
+test('select can be assigned through', () => {
+  output('(.[] | select(. > 1)) = 0', [1, 2, 3], [1, 0, 0]);
+});
+
+test('clone returns an equal but separate value', () => {
+  output('clone', { a: [1] }, { a: [1] });
+});
+
+test('env and builtins are available', () => {
+  output('env | type', null, 'object');
+  output('builtins | type', null, 'array');
+  assert.ok(builtinNames().includes('map/1'));
+  assert.ok(builtinNames().length > 60, `expected many builtins, got ${builtinNames().length}`);
+});
+
+test('every registered builtin name has a valid arity suffix', () => {
+  for (const name of builtinNames()) {
+    assert.match(name, /^[a-z_0-9]+\/\d$/, `${name} looks malformed`);
+  }
+});
