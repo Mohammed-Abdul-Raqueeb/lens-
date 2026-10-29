@@ -385,3 +385,37 @@ function* scanOf(input, pattern, flags, context) {
   }
 }
 
+const splits1 = valuedStreaming(1, function* body(input, [pattern], context) {
+  yield* splitsOf(input, pattern, null, context);
+});
+
+const splits2 = valuedStreaming(2, function* body(input, [pattern, flags], context) {
+  yield* splitsOf(input, pattern, flags, context);
+});
+
+function* splitsOf(input, pattern, flags, context) {
+  requireType(input, 'string', 'splits', context);
+  const { regex } = buildRegex(pattern, flags, context, 'splits');
+  yield* input.split(new RegExp(regex.source, `${regex.flags.replace('g', '')}g`));
+}
+
+const splitRegex = valued(2, (input, [pattern, flags], context) => {
+  requireType(input, 'string', 'split', context);
+  const { regex } = buildRegex(pattern, flags, context, 'split');
+  return input.split(new RegExp(regex.source, `${regex.flags.replace('g', '')}g`));
+});
+
+/** `sub(re; str)` — replaces the first match. */
+const sub2 = function* sub2(node, input, env) {
+  yield* substitute(node, input, env, false, null);
+};
+
+const sub3 = function* sub3(node, input, env) {
+  yield* substitute(node, input, env, false, node.args[2]);
+};
+
+/** `gsub(re; str)` — replaces every match. */
+const gsub2 = function* gsub2(node, input, env) {
+  yield* substitute(node, input, env, true, null);
+};
+
