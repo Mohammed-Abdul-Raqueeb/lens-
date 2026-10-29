@@ -234,3 +234,93 @@ const all0 = simple((input, context) => {
   return input.every(truthy);
 });
 
+const any1 = function* any1(node, input, env) {
+  const context = { node, env };
+  requireType(input, 'array', 'any', context);
+  for (const element of input) {
+    for (const test of evaluate(node.args[0], element, env)) {
+      // Short-circuits: a predicate that errors on a later element is never
+      // reached once one has matched.
+      if (truthy(test)) {
+        yield true;
+        return;
+      }
+    }
+  }
+  yield false;
+};
+
+const all1 = function* all1(node, input, env) {
+  const context = { node, env };
+  requireType(input, 'array', 'all', context);
+  for (const element of input) {
+    for (const test of evaluate(node.args[0], element, env)) {
+      if (!truthy(test)) {
+        yield false;
+        return;
+      }
+    }
+  }
+  yield true;
+};
+
+/** `flatten` — all the way down. */
+const flatten0 = simple((input, context) => {
+  requireType(input, 'array', 'flatten', context);
+  return flattenTo(input, Infinity);
+});
+
+/** `flatten(depth)` — only that many levels. */
+const flatten1 = valued(1, (input, [depth], context) => {
+  requireType(input, 'array', 'flatten', context);
+  requireType(depth, 'number', 'flatten', context);
+  if (depth < 0) return fail(context, `flatten needs a depth of 0 or more, got ${depth}`, depth);
+  return flattenTo(input, depth);
+});
+
+function flattenTo(values, depth) {
+  const out = [];
+  for (const element of values) {
+    if (Array.isArray(element) && depth > 0) {
+      out.push(...flattenTo(element, depth - 1));
+    } else {
+      out.push(element);
+    }
+  }
+  return out;
+}
+
+/**
+ * `first(f)` — the first output of `f`, and only that.
+ *
+ * The `return` after the first yield is what makes this worth having over
+ * `[f] | .[0]`: it stops the generator, so `first(range(1e9))` touches one
+ * value rather than a billion.
+ */
+const first1 = function* first1(node, input, env) {
+  for (const value of evaluate(node.args[0], input, env)) {
+    yield value;
+    return;
+  }
+};
+
+const first0 = simple((input, context) => {
+  requireType(input, 'array', 'first', context);
+  return input.length === 0 ? null : input[0];
+});
+
+const last1 = function* last1(node, input, env) {
+  let found;
+  let any = false;
+  for (const value of evaluate(node.args[0], input, env)) {
+    found = value;
+    any = true;
+  }
+  if (any) yield found;
+};
+
+const last0 = simple((input, context) => {
+  requireType(input, 'array', 'last', context);
+  return input.length === 0 ? null : input[input.length - 1];
+});
+
