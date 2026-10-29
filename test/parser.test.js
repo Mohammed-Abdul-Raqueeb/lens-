@@ -278,3 +278,46 @@ test('a def with no body after it is still valid', () => {
   assert.equal(ast.rest.type, Node.IDENTITY);
 });
 
+test('formats parse alone and applied to a string', () => {
+  assert.equal(parse('@base64').body, null);
+  assert.ok(parse('@base64 "x\\(.a)"').body);
+});
+
+test('two fields separated by a space are one path', () => {
+  // `.a .b` means `.a.b`, which is what jq does. Worth pinning rather than
+  // leaving to chance: the postfix loop is what makes it true, and a change
+  // there would silently alter the meaning of real queries.
+  sameShape(parse('.a .b'), parse('.a.b'));
+});
+
+test('a second complete expression after a query is reported', () => {
+  // A field is a suffix, so it attaches. A literal is not, so it cannot.
+  const error = throwsWith(() => parse('.a 1'), ParseError);
+  assert.match(error.message, /after the end of the query/);
+});
+
+test('an unclosed bracket is reported with what was expected', () => {
+  const error = throwsWith(() => parse('[1'), ParseError);
+  assert.match(error.message, /expected '\]'/);
+});
+
+test('errors carry an offset into the query', () => {
+  const error = throwsWith(() => parse('.a | | .b'), ParseError);
+  assert.equal(typeof error.offset, 'number');
+  assert.ok(error.offset > 0);
+});
+
+test('a formatted error draws a caret under the problem', () => {
+  const error = throwsWith(() => parse('.a | | .b'), ParseError);
+  const lines = error.format().split('\n');
+  assert.equal(lines.length, 3);
+  assert.match(lines[1], /\.a \| \| \.b/);
+  assert.match(lines[2], /^\s+\^$/);
+});
+
+test('a query nested past the limit is reported rather than overflowing', () => {
+  // The parser is recursive and the query is user input.
+  const deep = '('.repeat(500) + '.' + ')'.repeat(500);
+  const error = throwsWith(() => parse(deep), ParseError);
+  assert.match(error.message, /nests too deeply/);
+});
