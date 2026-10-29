@@ -104,3 +104,49 @@ export class Query {
   }
 }
 
+/**
+ * Compiles a query.
+ *
+ * @param {string} source the query text
+ * @param {object} [options] see {@link Query}
+ * @returns {Query} the compiled query
+ */
+export function compile(source, options) {
+  return new Query(source, options);
+}
+
+/**
+ * Compiles and runs a query, returning every output.
+ *
+ * @param {string} source the query text
+ * @param {unknown} input the document
+ * @param {object} [options] see {@link Query}
+ * @returns {unknown[]} the outputs
+ */
+export function query(source, input, options) {
+  return new Query(source, options).all(input);
+}
+
+/**
+ * Compiles and runs a query, returning its first output.
+ *
+ * @param {string} source the query text
+ * @param {unknown} input the document
+ * @param {object} [options] see {@link Query}
+ * @returns {unknown} the first output, or undefined
+ */
+export function queryFirst(source, input, options) {
+  return new Query(source, options).first(input);
+}
+
+/**
+ * The names and arities of every builtin.
+ *
+ * @returns {string[]} entries like `map/1`, sorted
+ */
+export function builtinNames() {
+  return [...BUILTINS.keys()].sort();
+}
+
+export { format, formatStream } from './format.js';
+export const VERSION = '0.1.0';
