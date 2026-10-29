@@ -123,3 +123,71 @@ const paths1 = function* paths1(node, input, env) {
   }
 };
 
+/** `leaf_paths` — the paths to scalars only. */
+const leafPaths = streaming(function* body(input) {
+  yield* allPaths(input, true);
+});
+
+const getpath = valued(1, (input, [path], context) => {
+  requirePath(path);
+  try {
+    return getPath(input, path);
+  } catch (error) {
+    return fail(context, error.message, input);
+  }
+});
+
+const setpath = valued(2, (input, [path, value], context) => {
+  requirePath(path);
+  try {
+    return setPath(input, path, value);
+  } catch (error) {
+    return fail(context, error.message, input);
+  }
+});
+
+const delpaths = valued(1, (input, [pathList], context) => {
+  if (!Array.isArray(pathList)) {
+    return fail(context, `delpaths needs an array of paths, not ${typeName(pathList)}`, pathList);
+  }
+  for (const path of pathList) requirePath(path);
+  try {
+    return deletePaths(input, pathList);
+  } catch (error) {
+    return fail(context, error.message, input);
+  }
+});
+
+/**
+ * `del(pathexpr)` — removes what a path expression addresses.
+ *
+ * Every path is collected before any is deleted, which is a correctness
+ * requirement rather than a tidiness one: deleting `.[0]` shifts every later
+ * index, so removing them one at a time removes the wrong elements.
+ * `deletePaths` applies them in descending order to make each independent.
+ */
+const del = function* del(node, input, env) {
+  const context = { node, env };
+  const found = COLLECT.collectPaths(node.args[0], input, env);
+  try {
+    yield deletePaths(input, found);
+  } catch (error) {
+    fail(context, error.message, input);
+  }
+};
+
+/** `path(pathexpr)` — the paths an expression addresses, as arrays. */
+const path1 = function* path1(node, input, env) {
+  for (const found of COLLECT.collectPaths(node.args[0], input, env)) {
+    yield found;
+  }
+};
+
+/**
+ * Holds `collectPaths` for `path` and `del`.
+ *
+ * Same reason as the builtin table in core.js: eval.js imports this module,
+ * so this module cannot import eval.js at the top level without a cycle.
+ */
+const COLLECT = { collectPaths: null };
+
