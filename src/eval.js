@@ -652,3 +652,180 @@ function* evalForeach(node, input, env) {
   }
 }
 
+function* evalCall(node, input, env) {
+  const defined = env.lookupFunc(node.name, node.args.length);
+  if (defined) {
+    yield* callUserFunc(node, defined, input, env);
+    return;
+  }
+
+  const builtin = BUILTINS.get(`${node.name}/${node.args.length}`);
+  if (builtin) {
+    yield* builtin(node, input, env);
+    return;
+  }
+
+  throw failure(node, env, describeUnknownFunction(node, env));
+}
+
+/** Builds the "no such function" message, suggesting a different arity. */
+function describeUnknownFunction(node, env) {
+  const otherArities = [];
+  for (let arity = 0; arity <= 3; arity++) {
+    if (arity === node.args.length) continue;
+    if (BUILTINS.has(`${node.name}/${arity}`) || env.lookupFunc(node.name, arity)) {
+      otherArities.push(arity);
+    }
+  }
+
+  if (otherArities.length > 0) {
+    return `${node.name} is not defined with ${node.args.length} arguments`
+      + `, but is with ${otherArities.join(' or ')}`;
+  }
+  return `${node.name} is not defined`;
+}
+
+function* callUserFunc(node, def, input, env) {
+  let scoped = def.env;
+
+  for (let i = 0; i < def.params.length; i++) {
+    const param = def.params[i];
+    const argument = node.args[i];
+
+    if (param.isValue) {
+      // A value parameter is evaluated once in the caller's environment, so
+      // a cross product over several of them is the caller's business.
+      const values = [...evaluate(argument, input, env)];
+      if (values.length !== 1) {
+        // jq binds each output in turn; this implementation does not, and
+        // saying so beats silently using the first.
+        if (values.length === 0) return;
+        throw failure(
+          node,
+          env,
+          `$${param.name} was given ${values.length} values;`
+            + ' a value parameter takes exactly one',
+        );
+      }
+      scoped = scoped.withVar(param.name, values[0]);
+      continue;
+    }
+
+    // A filter parameter is a closure over the caller's environment, which is
+    // what lets `map(.x)` see the caller's variables.
+    scoped = scoped.withFunc(param.name, {
+      params: [],
+      body: argument,
+      env,
+    });
+  }
+
+  yield* evaluate(def.body, input, scoped);
+}
+
+function* evalFormat(node, input, env) {
+  const formatter = FORMATS[node.name];
+  if (!formatter) {
+    throw failure(
+      node,
+      env,
+      `@${node.name} is not a known format; the formats are `
+        + Object.keys(FORMATS).sort().join(', '),
+    );
+  }
+
+  if (node.body === null) {
+    yield formatter(input);
+    return;
+  }
+
+  // Applied to an interpolated string, the format is applied to each
+  // interpolated part rather than to the whole result -- which is the point:
+  // `@uri "?q=\(.term)"` must not escape the `?` or the `=`.
+  if (node.body.type === Node.INTERPOLATE) {
+    for (const value of evalInterpolate(node.body, input, env, formatter)) {
+      yield value;
+    }
+    return;
+  }
+
+  for (const value of evaluate(node.body, input, env)) {
+    yield formatter(value);
+  }
+}
+
+function* evalInterpolate(node, input, env, formatter = null) {
+  let results = [''];
+
+  for (const part of node.parts) {
+    const next = [];
+    for (const prefix of results) {
+      for (const value of evaluate(part, input, env)) {
+        const text = part.type === Node.LITERAL
+          ? String(value)
+          : applyInterpolationFormat(value, formatter);
+        next.push(prefix + text);
+      }
+    }
+    results = next;
+  }
+
+  yield* results;
+}
+
+function applyInterpolationFormat(value, formatter) {
+  if (formatter) return formatter(value);
+  // A string interpolates as itself rather than as JSON, so
+  // `"hello \(.name)"` does not produce quotes around the name.
+  return typeof value === 'string' ? value : JSON.stringify(value) ?? 'null';
+}
+
+function* evalAssign(node, input, env) {
+  for (const value of evaluate(node.value, input, env)) {
+    let out = input;
+    for (const path of collectPaths(node.target, input, env)) {
+      out = setPath(out, path, value);
+    }
+    yield out;
+  }
+}
+
+function* evalUpdate(node, input, env) {
+  const op = node.op;
+
+  if (op === '|=') {
+    let out = input;
+    for (const path of collectPaths(node.target, input, env)) {
+      const current = getPath(out, path);
+      // The first output of the right-hand side wins. jq uses the first too,
+      // and the alternative -- the last -- would mean reading the whole
+      // generator for a value that is usually a single transform.
+      let replacement;
+      let produced = false;
+      for (const candidate of evaluate(node.value, current, env)) {
+        replacement = candidate;
+        produced = true;
+        break;
+      }
+      // Yielding nothing deletes the path, which is how `del` is expressible
+      // as an update and why `.a |= empty` removes `.a`.
+      out = produced ? setPath(out, path, replacement) : deletePaths(out, [path]);
+    }
+    yield out;
+    return;
+  }
+
+  const arithmetic = op.slice(0, -1);
+  for (const operand of evaluate(node.value, input, env)) {
+    let out = input;
+    for (const path of collectPaths(node.target, input, env)) {
+      const current = getPath(out, path);
+      const combined = op === '//='
+        ? (truthy(current) ? current : operand)
+        : applyBinary({ ...node, op: arithmetic }, current, operand, env);
+      out = setPath(out, path, combined);
+    }
+    yield out;
+  }
+}
+
