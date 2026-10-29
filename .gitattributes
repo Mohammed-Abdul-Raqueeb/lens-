@@ -1,0 +1,16 @@
+# Line endings are normalised to LF in the repository.
+#
+# The work happens on Windows, where autocrlf would check files out with CRLF.
+# For JavaScript that is harmless; for a shell script it is not, and keeping
+# one rule for everything avoids having to remember which is which.
+* text=auto eol=lf
+
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.sh text eol=lf
+
+# Fixtures are compared byte for byte, so a line-ending rewrite would make a
+# test fail for the wrong reason.
+test/fixtures/** -text
