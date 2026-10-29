@@ -141,3 +141,56 @@ export const foreach = (source, pattern, init, update, extract, offset = -1) =>
 export const bind = (source, pattern, body, offset = -1) =>
   ({ type: Node.BIND, source, pattern, body, offset });
 
+/** `$name` */
+export const variable = (name, offset = -1) =>
+  ({ type: Node.VARIABLE, name, offset });
+
+/** `def name(params): body; rest` */
+export const funcDef = (name, params, body, rest, offset = -1) =>
+  ({ type: Node.FUNCDEF, name, params, body, rest, offset });
+
+/** `@base64`, and `@text "..."` when applied to a string. */
+export const format = (name, body = null, offset = -1) =>
+  ({ type: Node.FORMAT, name, body, offset });
+
+/** `"a\(expr)b"` — parts are strings and expressions, in order. */
+export const interpolate = (parts, offset = -1) =>
+  ({ type: Node.INTERPOLATE, parts, offset });
+
+/** `path = value` */
+export const assign = (target, value, offset = -1) =>
+  ({ type: Node.ASSIGN, target, value, offset });
+
+/** `path |= f`, `path += f`, and the other update operators. */
+export const update = (op, target, value, offset = -1) =>
+  ({ type: Node.UPDATE, op, target, value, offset });
+
+/**
+ * Walks a tree, calling `visit` on every node.
+ *
+ * Used by the optimiser and by `tools/lint.js`. Written iteratively with an
+ * explicit stack rather than recursively: a query is user input, and a deeply
+ * nested one would otherwise blow the stack inside a tool whose job is to
+ * report problems with it.
+ *
+ * @param {object} node the root
+ * @param {(node: object) => void} visit called for each node, parents first
+ */
+export function walk(node, visit) {
+  const stack = [node];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current || typeof current !== 'object') continue;
+    visit(current);
+
+    for (const key of Object.keys(current)) {
+      if (key === 'type' || key === 'offset') continue;
+      const child = current[key];
+      if (Array.isArray(child)) {
+        for (const element of child) stack.push(element);
+      } else if (child && typeof child === 'object') {
+        stack.push(child);
+      }
+    }
+  }
+}
