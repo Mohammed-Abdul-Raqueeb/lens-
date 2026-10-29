@@ -163,3 +163,97 @@ export function deletePath(value, path) {
   return out;
 }
 
+/**
+ * Removes several paths at once.
+ *
+ * Sorted and applied longest-and-last first, which is not an optimisation but
+ * a correctness requirement: deleting `[0]` then `[1]` from a three-element
+ * array removes the first and third elements, because the second delete sees
+ * a shifted array. Going in descending order makes each delete independent of
+ * the others.
+ *
+ * @param {unknown} value the document
+ * @param {Array<Array<string|number>>} paths the paths to remove
+ * @returns {unknown} a new document
+ */
+export function deletePaths(value, paths) {
+  const ordered = [...paths].sort(comparePaths).reverse();
+
+  let out = value;
+  for (const path of ordered) {
+    out = deletePath(out, path);
+  }
+  return out;
+}
+
+/** Orders two paths lexicographically, numbers before strings at each step. */
+function comparePaths(left, right) {
+  const shared = Math.min(left.length, right.length);
+  for (let i = 0; i < shared; i++) {
+    const a = left[i];
+    const b = right[i];
+    if (a === b) continue;
+    if (typeof a === 'number' && typeof b === 'number') return a - b;
+    if (typeof a === 'number') return -1;
+    if (typeof b === 'number') return 1;
+    return a < b ? -1 : 1;
+  }
+  return left.length - right.length;
+}
+
+/**
+ * Every path to a leaf within a value, depth first.
+ *
+ * @param {unknown} value the document
+ * @param {boolean} [leavesOnly] when true, skip paths to containers
+ * @returns {Array<Array<string|number>>} the paths
+ */
+export function allPaths(value, leavesOnly = false) {
+  const out = [];
+
+  const walk = (current, prefix) => {
+    if (prefix.length > 0 && (!leavesOnly || !isContainer(current))) {
+      out.push(prefix);
+    }
+
+    if (Array.isArray(current)) {
+      current.forEach((element, i) => walk(element, [...prefix, i]));
+      return;
+    }
+    if (current !== null && typeof current === 'object') {
+      for (const key of Object.keys(current)) walk(current[key], [...prefix, key]);
+    }
+  };
+
+  walk(value, []);
+  return out;
+}
+
+function isContainer(value) {
+  return Array.isArray(value) || (value !== null && typeof value === 'object');
+}
+
+/**
+ * Checks that a value is usable as a path, and normalises it.
+ *
+ * @param {unknown} value a candidate path
+ * @returns {Array<string|number>} the path
+ * @throws {EvalError} when it is not an array of strings and numbers
+ */
+export function requirePath(value) {
+  if (!Array.isArray(value)) {
+    throw new EvalError(
+      `a path must be an array, found ${typeName(value)}: ${describe(value)}`,
+      { value },
+    );
+  }
+  for (const key of value) {
+    if (typeof key !== 'string' && typeof key !== 'number') {
+      throw new EvalError(
+        `a path element must be a string or a number, found ${typeName(key)}`,
+        { value },
+      );
+    }
+  }
+  return value;
+}
