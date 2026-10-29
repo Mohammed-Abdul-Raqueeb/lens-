@@ -78,3 +78,58 @@ test('comparisons do not chain', () => {
   assert.match(error.message, /parenthesise/);
 });
 
+test('assignment does not chain', () => {
+  const error = throwsWith(() => parse('.a = .b = 1'), ParseError);
+  assert.match(error.message, /does not chain/);
+});
+
+test('alternative binds looser than assignment', () => {
+  const ast = parse('.a // .b');
+  assert.equal(ast.type, Node.ALTERNATIVE);
+});
+
+test('literals parse, including the three bare words', () => {
+  assert.equal(parse('1').value, 1);
+  assert.equal(parse('"s"').value, 's');
+  assert.equal(parse('true').value, true);
+  assert.equal(parse('false').value, false);
+  assert.equal(parse('null').value, null);
+});
+
+test('an array literal holds its body, and an empty one holds null', () => {
+  assert.equal(parse('[.a]').type, Node.ARRAY);
+  assert.equal(parse('[]').body, null);
+});
+
+test('object entries parse, including shorthand and computed keys', () => {
+  const plain = parse('{a: 1}');
+  assert.equal(plain.type, Node.OBJECT);
+  assert.equal(plain.entries.length, 1);
+
+  // `{a}` means `{a: .a}`.
+  const shorthand = parse('{a}');
+  assert.equal(shorthand.entries[0].value.type, Node.FIELD);
+  assert.equal(shorthand.entries[0].value.name, 'a');
+
+  // `{$x}` means `{x: $x}`.
+  const variable = parse('{$x}');
+  assert.equal(variable.entries[0].value.type, Node.VARIABLE);
+
+  const computed = parse('{(.k): 1}');
+  assert.equal(computed.entries[0].key.type, Node.FIELD);
+});
+
+test('a keyword is allowed as an object key', () => {
+  // Refusing this would make a lot of real JSON unqueryable.
+  const ast = parse('{if: 1, and: 2, end: 3}');
+  assert.equal(ast.entries.length, 3);
+  assert.equal(ast.entries[0].key.value, 'if');
+});
+
+test('a trailing comma in an object is accepted', () => {
+  // Object literals get edited line by line; a parse error on a line nobody
+  // touched is a poor trade for strictness.
+  const ast = parse('{a: 1, b: 2,}');
+  assert.equal(ast.entries.length, 2);
+});
+
