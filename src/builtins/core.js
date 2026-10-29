@@ -267,3 +267,94 @@ const pow = valued(2, (input, [base, exponent], context) => {
   return base ** exponent;
 });
 
+const abs = simple((input, context) => {
+  requireType(input, 'number', 'abs', context);
+  return Math.abs(input);
+});
+
+const isnan = simple((input) => typeof input === 'number' && Number.isNaN(input));
+const isinfinite = simple((input) => typeof input === 'number' && !Number.isFinite(input)
+  && !Number.isNaN(input));
+const isnormal = simple((input) => typeof input === 'number' && Number.isFinite(input)
+  && input !== 0);
+const isvalid = function* isvalid(node, input, env) {
+  try {
+    // Consumed fully: a generator that throws on its third value is not
+    // valid, and stopping at the first would say it was.
+    for (const _ of evaluate(node.args[0], input, env)) {
+      void _;
+    }
+    yield true;
+  } catch {
+    yield false;
+  }
+};
+
+const notBuiltin = simple((input) => !truthy(input));
+
+/** `env` — the process environment, as an object. */
+const env0 = simple(() => ({ ...process.env }));
+
+/**
+ * Holds the builtin table for the `builtins` function to read.
+ *
+ * A mutable box rather than a direct import, because the table lives in
+ * eval.js and eval.js is what registers these -- reading it at module load
+ * would be a cycle. {@link setBuiltinTable} fills it once registration is
+ * done.
+ */
+const BUILTIN_TABLE = { value: new Map() };
+
+/**
+ * Hands the builtin table to the `builtins` function.
+ *
+ * @param {Map<string, Function>} table the registered builtins
+ */
+export function setBuiltinTable(table) {
+  BUILTIN_TABLE.value = table;
+}
+
+/** `builtins` — the names of every builtin, for discovery from the CLI. */
+const builtinsList = simple(() => [...BUILTIN_TABLE.value.keys()].sort());
+
+/** The builtins this module provides, keyed by `name/arity`. */
+export const coreBuiltins = {
+  'length/0': length,
+  'utf8bytelength/0': utf8bytelength,
+  'keys/0': keys,
+  'keys_unsorted/0': keysUnsorted,
+  'has/1': has,
+  'in/1': inside,
+  'type/0': typeOf,
+  'empty/0': empty,
+  'error/0': error0,
+  'error/1': error1,
+  'select/1': select,
+  'map/1': map,
+  'map_values/1': mapValues,
+  'recurse/1': recurse1,
+  'recurse/2': recurse2,
+  'range/1': range1,
+  'range/2': range2,
+  'range/3': range3,
+  'floor/0': floor,
+  'ceil/0': ceil,
+  'round/0': round,
+  'fabs/0': fabs,
+  'abs/0': abs,
+  'sqrt/0': sqrt,
+  'pow/2': pow,
+  'log/0': log,
+  'log2/0': log2,
+  'log10/0': log10,
+  'exp/0': exp,
+  'exp2/0': exp2,
+  'exp10/0': exp10,
+  'isnan/0': isnan,
+  'isinfinite/0': isinfinite,
+  'isnormal/0': isnormal,
+  'isvalid/1': isvalid,
+  'not/0': notBuiltin,
+  'env/0': env0,
+  'builtins/0': builtinsList,
+};
