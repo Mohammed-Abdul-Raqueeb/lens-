@@ -204,3 +204,44 @@ test('not inverts truthiness', () => {
   output('0 | not', null, false);
 });
 
+test('an if with no else passes the input through', () => {
+  // So `if .x then .y end` is a conditional transform rather than a filter.
+  output('if false then "changed" end', { a: 1 }, { a: 1 });
+});
+
+test('an if runs once per condition output', () => {
+  outputs('if (true, false) then "y" else "n" end', null, ['y', 'n']);
+});
+
+test('alternative falls back on nothing, false and null', () => {
+  output('.missing // "d"', {}, 'd');
+  output('false // "d"', null, 'd');
+  output('null // "d"', null, 'd');
+  output('empty // "d"', null, 'd');
+  output('0 // "d"', null, 0);
+});
+
+test('alternative falls back on an error too', () => {
+  // What makes `.a.b // "d"` work when `.a` is the wrong type.
+  output('.a.b // "d"', { a: 'string' }, 'd');
+});
+
+test('alternative yields every truthy left output', () => {
+  outputs('(1, false, 2) // "d"', null, [1, 2]);
+});
+
+test('optional suppresses errors but keeps earlier outputs', () => {
+  // The reason it is an explicit pull loop: values already produced must
+  // still be yielded when a later one throws.
+  outputs('[.[] | .a?]', [{ a: 1 }, 'bad', { a: 2 }], [[1, 2]]);
+});
+
+test('try catches an error and hands its message to the handler', () => {
+  output('try error("boom") catch .', null, 'boom');
+  output('try .a catch "caught"', 42, 'caught');
+});
+
+test('try without a catch swallows the error', () => {
+  outputs('try error("boom")', null, []);
+});
+
