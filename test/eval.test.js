@@ -142,3 +142,65 @@ test('plus merges shallowly where star merges deeply', () => {
   output('{a: {b: 1}} * {a: {c: 2}}', null, { a: { b: 1, c: 2 } });
 });
 
+test('division works on numbers and splits strings', () => {
+  output('6 / 3', null, 2);
+  output('"a,b" / ","', null, ['a', 'b']);
+});
+
+test('dividing by zero is an error, not Infinity', () => {
+  // Infinity has no JSON form, so it would fail at output time instead -- a
+  // long way from the division that caused it.
+  fails('1 / 0', null, /divide 1 by zero/);
+  fails('1 % 0', null, /modulo zero/);
+});
+
+test('modulo truncates its operands and takes the left sign', () => {
+  output('7 % 3', null, 1);
+  output('-7 % 3', null, -1);
+  output('7.9 % 3', null, 1);
+});
+
+test('comparison uses the total order across types', () => {
+  output('null < false', null, true);
+  output('false < true', null, true);
+  output('true < 1', null, true);
+  output('1 < "a"', null, true);
+  output('"a" < []', null, true);
+  output('[] < {}', null, true);
+});
+
+test('equality is deep', () => {
+  output('[1, [2]] == [1, [2]]', null, true);
+  output('{a: 1} == {a: 1}', null, true);
+  // Key order does not affect equality.
+  output('{a: 1, b: 2} == {b: 2, a: 1}', null, true);
+  output('{a: 1} == {a: 2}', null, false);
+});
+
+test('only false and null are falsy', () => {
+  // Zero and the empty string are true, which surprises people from
+  // JavaScript and is right here: `if .count then` should fire for zero.
+  output('if 0 then "y" else "n" end', null, 'y');
+  output('if "" then "y" else "n" end', null, 'y');
+  output('if [] then "y" else "n" end', null, 'y');
+  output('if null then "y" else "n" end', null, 'n');
+  output('if false then "y" else "n" end', null, 'n');
+});
+
+test('and and or short-circuit', () => {
+  // The right side is never evaluated, so an error there does not surface.
+  output('false and error("never")', null, false);
+  output('true or error("never")', null, true);
+});
+
+test('and and or yield booleans, not their operands', () => {
+  output('1 and 2', null, true);
+  output('null or 3', null, true);
+});
+
+test('not inverts truthiness', () => {
+  output('true | not', null, false);
+  output('null | not', null, true);
+  output('0 | not', null, false);
+});
+
