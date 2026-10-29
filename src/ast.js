@@ -90,3 +90,30 @@ export const array = (body, offset = -1) =>
 export const object = (entries, offset = -1) =>
   ({ type: Node.OBJECT, entries, offset });
 
+/** `-expr` */
+export const negate = (body, offset = -1) =>
+  ({ type: Node.NEGATE, body, offset });
+
+/** `a + b`, `a == b`, and the rest of the two-sided operators. */
+export const binary = (op, left, right, offset = -1) =>
+  ({ type: Node.BINARY, op, left, right, offset });
+
+/** `a and b` — short-circuits, which is why it is not a Binary. */
+export const and = (left, right, offset = -1) =>
+  ({ type: Node.AND, left, right, offset });
+
+/** `a or b` — short-circuits. */
+export const or = (left, right, offset = -1) =>
+  ({ type: Node.OR, left, right, offset });
+
+/** `not` — a builtin in jq, a node here so it can be a prefix keyword. */
+export const not = (offset = -1) => ({ type: Node.NOT, offset });
+
+/** `a // b` — `a` unless it yields nothing or only false/null. */
+export const alternative = (left, right, offset = -1) =>
+  ({ type: Node.ALTERNATIVE, left, right, offset });
+
+/** `expr?` — suppresses errors from `expr`, yielding nothing instead. */
+export const optional = (body, offset = -1) =>
+  ({ type: Node.OPTIONAL, body, offset });
+
