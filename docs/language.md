@@ -113,3 +113,127 @@ people arriving from JavaScript and is the right choice here: `if .count then`
 should fire for a count of zero, because the question being asked is whether
 the field is there.
 
+## Conditionals
+
+```
+if .a then "yes" else "no" end
+if .a then "yes" elif .b then "maybe" else "no" end
+if .a then "yes" end            # no else: passes the input through
+```
+
+An `if` with no `else` yields its input unchanged, so it is a conditional
+*transform* rather than a filter that drops everything failing the test.
+
+## Errors
+
+```
+try .a catch "failed"       # the handler gets the error message
+try .a                      # swallow it, yielding nothing
+.a?                         # the same, as a suffix
+.a // "default"             # also catches errors on the left
+```
+
+`?` keeps the outputs produced before the failure:
+`[.[] | .a?]` over `[{"a":1}, "bad", {"a":2}]` is `[1,2]`.
+
+## Variables and functions
+
+```
+.a as $x | $x + 1                       # bind
+reduce .[] as $x (0; . + $x)            # fold
+foreach .[] as $x (0; . + $x)           # fold, emitting each step
+def double: . * 2; map(double)          # define
+def add($n): . + $n; add(3)             # a value parameter
+def apply(f): f; apply(.a + 1)          # a filter parameter
+```
+
+The two parameter kinds differ in when they are evaluated. `$n` is evaluated
+once, in the caller. `f` is a closure re-evaluated at each use, which is what
+makes `map(.x)` work.
+
+`$ENV` holds the process environment and `$ARGS` holds the command line's
+`--arg` values and positional arguments.
+
+## Assignment
+
+```
+.a = 1          set
+.a |= . + 1     update with a filter
+.a += 1         shorthand for the arithmetic operators
+.a //= "d"      set only if currently false or null
+del(.a)         remove
+.a |= empty     also remove
+```
+
+The left side must be a *path expression* — something built from `.field`,
+`.[i]`, `.[]`, `..`, pipes, commas, `select`, `first` and `getpath`. Anything
+else is refused at runtime, because `(1 + 1) = 3` has no meaning and the error
+should say so rather than failing somewhere inside the assignment.
+
+Assignment never mutates the input. Only the path is copied, so updating one
+field of a large document does not copy the whole thing.
+
+## Strings
+
+```
+"plain"
+"interpolated: \(.a + 1)"
+@base64                    apply a format to the input
+@uri "?q=\(.term)"         apply it to the interpolated parts only
+```
+
+The second form is the useful one: `@uri "?q=\(.term)"` escapes the term but
+not the `?` or the `=`.
+
+Formats: `@text`, `@json`, `@csv`, `@tsv`, `@html`, `@uri`, `@sh`, `@base64`,
+`@base64d`.
+
+A string interpolates as itself rather than as JSON, so `"hi \(.name)"` does
+not put quotes around the name.
+
+## Regular expressions
+
+`test`, `match`, `capture`, `scan`, `splits`, `sub` and `gsub` take a pattern
+and optional flags. Flags: `g` global, `i` case-insensitive, `x` extended
+(whitespace and `#` comments ignored), `s`/`m` dot matches newline, `n`
+ignore empty matches.
+
+```bash
+$ lens -rn '"a1b22" | [scan("[0-9]+")]'
+["1","22"]
+$ lens -rn '"a1b2" | gsub("(?<d>[0-9])"; "[\(.d)]")'
+a[1]b[2]
+```
+
+A substitution's replacement is a *filter*, not a string, and it runs with the
+named captures as its input. That is why the second example can refer to
+`.d`.
+
+The engine is JavaScript's own `RegExp`. It is the one place this project
+leans on the host for something substantial — writing a regex engine would be
+a larger project than the query language around it.
+
+## Limits
+
+| Limit | Value | Why |
+| --- | --- | --- |
+| Nesting depth | 200 | The parser recurses and the query is user input |
+| `until`/`while`/`repeat` steps | 1,000,000 | An unbounded loop is indistinguishable from a hang |
+| `range` step | non-zero | A zero step would never advance |
+
+## Differences from jq
+
+Queries copied from jq mostly work. These do not:
+
+- **No destructuring.** `. as [$a, $b]` and `. as {$x}` are refused by name
+  rather than silently misparsed.
+- **No modules.** `import` and `include` lex but do not run.
+- **No `$__loc__`, `input`, `inputs`, `debug`, `input_line_number`.** All need
+  a notion of the input stream that the library deliberately does not have —
+  the CLI owns input, not the evaluator.
+- **No date functions.** `now`, `strftime`, `mktime` and the rest are absent.
+- **No `limit` with a negative count**, and `nth` refuses a negative index
+  rather than counting from the end.
+- **`def f($a)` takes exactly one value.** jq binds each output of the
+  argument in turn; here more than one is an error, which is reported rather
+  than silently using the first.
