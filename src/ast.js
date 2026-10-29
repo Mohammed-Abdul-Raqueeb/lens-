@@ -117,3 +117,27 @@ export const alternative = (left, right, offset = -1) =>
 export const optional = (body, offset = -1) =>
   ({ type: Node.OPTIONAL, body, offset });
 
+/** `name` or `name(args)` — a builtin or user-defined function. */
+export const call = (name, args = [], offset = -1) =>
+  ({ type: Node.CALL, name, args, offset });
+
+/** `if c then a elif c2 then b else c end` */
+export const ifThen = (cond, then, elseBody, offset = -1) =>
+  ({ type: Node.IF, cond, then, else: elseBody, offset });
+
+/** `try a catch b` */
+export const tryCatch = (body, handler, offset = -1) =>
+  ({ type: Node.TRY, body, handler, offset });
+
+/** `reduce source as $x (init; update)` */
+export const reduce = (source, pattern, init, update, offset = -1) =>
+  ({ type: Node.REDUCE, source, pattern, init, update, offset });
+
+/** `foreach source as $x (init; update; extract)` */
+export const foreach = (source, pattern, init, update, extract, offset = -1) =>
+  ({ type: Node.FOREACH, source, pattern, init, update, extract, offset });
+
+/** `source as $x | body` */
+export const bind = (source, pattern, body, offset = -1) =>
+  ({ type: Node.BIND, source, pattern, body, offset });
+
