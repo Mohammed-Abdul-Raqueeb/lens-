@@ -119,3 +119,51 @@ test('an interpolated string lexes as parts', () => {
   assert.deepEqual(value.interpolate, ['a', { expr: '.x' }, 'b']);
 });
 
+test('a parenthesis inside an interpolated string does not close it', () => {
+  // The scanner tracks nesting and strings, so `)` inside either is not the
+  // end of the interpolation.
+  const value = tokenize('"\\(.a | f(1))"')[0].value;
+  assert.deepEqual(value.interpolate, [{ expr: '.a | f(1)' }]);
+
+  const nested = tokenize('"\\(.a + ")")"')[0].value;
+  assert.deepEqual(nested.interpolate, [{ expr: '.a + ")"' }]);
+});
+
+test('an unclosed interpolation is an error', () => {
+  throwsWith(() => tokenize('"\\(.a"'), LexError);
+});
+
+test('an unexpected character is reported with its position', () => {
+  const error = throwsWith(() => tokenize('. & .'), LexError);
+  assert.match(error.message, /unexpected character '&'/);
+  assert.equal(error.offset, 2);
+});
+
+test('a non-string query is refused', () => {
+  throwsWith(() => tokenize(null), LexError);
+  throwsWith(() => tokenize(42), LexError);
+});
+
+test('tokens carry their offsets', () => {
+  const tokens = tokenize('.a | .b');
+  assert.equal(tokens[0].offset, 0);
+  assert.equal(tokens[1].offset, 3);
+  assert.equal(tokens[2].offset, 5);
+});
+
+test('a token describes itself for an error message', () => {
+  const tokens = tokenize('.a "x"');
+  assert.equal(tokens[1].describe(), 'string "x"');
+  assert.equal(tokenize('|')[0].describe(), "'|'");
+  assert.equal(tokenize('')[0].describe(), 'end of input');
+});
+
+test('isOp and isKeyword do not confuse the two', () => {
+  const [op] = tokenize('|');
+  assert.ok(op.isOp('|'));
+  assert.ok(!op.isKeyword('|'));
+
+  const [keyword] = tokenize('if');
+  assert.ok(keyword.isKeyword('if'));
+  assert.ok(!keyword.isOp('if'));
+});
