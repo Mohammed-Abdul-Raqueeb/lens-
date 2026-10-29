@@ -154,3 +154,47 @@ test('splits and the two-argument split use a regex', () => {
   output('split("[,;]"; null)', 'a,b;c', ['a', 'b', 'c']);
 });
 
+test('sub replaces the first match and gsub replaces all', () => {
+  output('sub("l"; "L")', 'hello', 'heLlo');
+  output('gsub("l"; "L")', 'hello', 'heLLo');
+  output('sub("x"; "y")', 'abc', 'abc');
+});
+
+test('a substitution replacement can read the named captures', () => {
+  // The reason the replacement is a filter rather than a string.
+  output('gsub("(?<d>[0-9])"; "[\\(.d)]")', 'a1b2', 'a[1]b[2]');
+  output('sub("(?<x>a)"; .x + "!")', 'abc', 'a!bc');
+});
+
+test('a substitution with flags uses them', () => {
+  output('gsub("A"; "x"; "i")', 'aAa', 'xxx');
+});
+
+test('a non-string replacement is refused', () => {
+  fails('sub("a"; 1)', 'abc', /needs a string replacement/);
+});
+
+test('ascii turns a code point into a character', () => {
+  output('ascii', 65, 'A');
+  fails('ascii', 'A', /ascii needs a number/);
+});
+
+test('the text and json formats differ on strings', () => {
+  output('@text', 'a', 'a');
+  output('@json', 'a', '"a"');
+  output('@text', [1], '[1]');
+});
+
+test('csv quotes strings and doubles inner quotes', () => {
+  output('@csv', [1, 'a,b', null], '1,"a,b",');
+  output('@csv', ['say "hi"'], '"say ""hi"""');
+  fails('@csv', 'notanarray', /@csv needs an array/);
+});
+
+test('tsv escapes tabs and newlines rather than quoting', () => {
+  // TSV has no quoting, so a raw tab would silently become a new column.
+  output('@tsv', ['a\tb'], 'a\\tb');
+  output('@tsv', ['a\nb'], 'a\\nb');
+  output('@tsv', [1, null, 'x'], '1\t\tx');
+});
+
