@@ -26,8 +26,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 20 is the floor: the test runner and `node --test` glob support
-          # are what the suite relies on.
+          # 20 is the floor: that is where `node:test` became stable. Note
+          # that the glob below is expanded by the shell rather than by node
+          # -- `node --test "test/*.test.js"` only works from Node 22, and
+          # using it here is what made the Node 20 job fail with
+          # "Could not find '.../test/*.test.js'".
           - os: ubuntu-latest
             node: '20'
           - os: ubuntu-latest
@@ -50,8 +53,12 @@ jobs:
           node-version: ${{ matrix.node }}
 
       # No `npm ci`: there is no lock file because there are no dependencies.
+      #
+      # Unquoted on purpose, so the shell expands the glob and node receives
+      # a list of files. Quoting it hands node the pattern, which only Node 22
+      # and newer can expand.
       - name: Test
-        run: node --test "test/*.test.js"
+        run: node --test test/*.test.js
 
   lint:
     name: Lint
@@ -147,7 +154,7 @@ jobs:
           echo '{"n":"x"}' | lens -r '.n' | grep -qx 'x'
 
           echo "--- arguments reach the query ---"
-          echo 'null' | lens --arg w world -r '"hi \(\$w)"' | grep -qx 'hi world'
+          echo 'null' | lens --arg w world -r '"hi \($w)"' | grep -qx 'hi world'
 
           echo "--- slurp folds a stream into one array ---"
           printf '1\n2\n3\n' | lens -s 'add' | grep -qx '6'
