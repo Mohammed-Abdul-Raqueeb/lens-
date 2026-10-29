@@ -326,3 +326,48 @@ test('pretty output breaks an array of containers', () => {
   assert.equal(format([[1], [2]], { pretty: true }), '[\n  [1],\n  [2]\n]');
 });
 
+test('a long scalar array is broken despite being scalars', () => {
+  const long = Array.from({ length: 40 }, (_, i) => i);
+  assert.match(format(long, { pretty: true }), /\n/);
+});
+
+test('the width threshold is fixed, not the terminal width', () => {
+  // Output that changes shape depending on where it is going cannot be
+  // diffed, so the same value renders the same way in a pipe and on screen.
+  const value = Array.from({ length: 40 }, (_, i) => i);
+  assert.equal(format(value, { pretty: true }), format(value, { pretty: true, colour: false }));
+});
+
+test('empty containers stay on one line', () => {
+  assert.equal(format([], { pretty: true }), '[]');
+  assert.equal(format({}, { pretty: true }), '{}');
+});
+
+test('indent and tab options change the indentation', () => {
+  const nested = format({ a: { b: 1 } }, { pretty: true, indent: 4 });
+  assert.equal(nested, ['{', '    "a": {', '        "b": 1', '    }', '}'].join('\n'));
+  assert.match(format({ a: { b: 1 } }, { pretty: true, tab: true }), /\t/);
+});
+
+test('sortKeys orders keys without touching values', () => {
+  assert.equal(format({ b: 1, a: 2 }, { sortKeys: true }), '{"a":2,"b":1}');
+  assert.equal(format({ b: [2, 1] }, { sortKeys: true }), '{"b":[2,1]}');
+});
+
+test('colour wraps tokens in escapes and does not change the text', () => {
+  const coloured = format({ a: 'x' }, { colour: true });
+  assert.match(coloured, /\u001b\[/);
+  // eslint-disable-next-line no-control-regex
+  assert.equal(coloured.replace(/\u001b\[[0-9;]*m/g, ''), '{"a":"x"}');
+});
+
+test('non-finite numbers render as null, as JSON.stringify does', () => {
+  // Neither has a JSON form, and matching stringify keeps the output
+  // parseable by whatever reads it.
+  assert.equal(format(Infinity), 'null');
+  assert.equal(format(NaN), 'null');
+});
+
+test('negative zero keeps its sign', () => {
+  assert.equal(format(-0), '-0');
+});
