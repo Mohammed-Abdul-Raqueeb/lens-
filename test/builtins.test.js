@@ -258,3 +258,55 @@ test('repeat needs a limit to terminate', () => {
   output('[limit(3; repeat(. * 2))]', 1, [1, 2, 4]);
 });
 
+test('indices finds every occurrence, including overlapping ones', () => {
+  output('indices(2)', [1, 2, 3, 2], [1, 3]);
+  output('indices("b")', 'abcb', [1, 3]);
+  output('indices([1, 2])', [0, 1, 2, 1, 2], [1, 3]);
+  // "aa" occurs at 0 and 1 in "aaa": overlapping matches both count.
+  output('indices("aa")', 'aaa', [0, 1]);
+  output('indices("x")', null, null);
+});
+
+test('index and rindex give the first and last', () => {
+  output('index("b")', 'abcb', 1);
+  output('rindex("b")', 'abcb', 3);
+  output('index("z")', 'abc', null);
+});
+
+test('combinations takes one from each array', () => {
+  output('[combinations]', [[1, 2], [3, 4]], [[1, 3], [1, 4], [2, 3], [2, 4]]);
+  output('[combinations]', [], [[]]);
+});
+
+test('transpose pads short rows so the result is rectangular', () => {
+  output('transpose', [[1, 2], [3]], [[1, 3], [2, null]]);
+  output('transpose', [], []);
+});
+
+test('to_entries and from_entries round-trip an object', () => {
+  output('to_entries', { a: 1 }, [{ key: 'a', value: 1 }]);
+  output('to_entries | from_entries', { a: 1, b: 2 }, { a: 1, b: 2 });
+  // Insertion order survives, so round-tripping does not reorder fields.
+  output('to_entries | map(.key)', { b: 1, a: 2 }, ['b', 'a']);
+});
+
+test('from_entries accepts the shapes entry lists arrive in', () => {
+  output('from_entries', [{ key: 'a', value: 1 }], { a: 1 });
+  output('from_entries', [{ k: 'a', v: 1 }], { a: 1 });
+  output('from_entries', [{ name: 'a', value: 1 }], { a: 1 });
+  output('from_entries', [['a', 1]], { a: 1 });
+  // A bare scalar becomes a key with a null value, which makes a set.
+  output('from_entries', ['a', 'b'], { a: null, b: null });
+});
+
+test('with_entries transforms keys and values together', () => {
+  output('with_entries(.value += 1)', { a: 1 }, { a: 2 });
+  output('with_entries(.key |= ascii_upcase)', { a: 1 }, { A: 1 });
+});
+
+test('paths lists every path, and leaf_paths only the scalars', () => {
+  output('[paths]', { a: { b: 1 } }, [['a'], ['a', 'b']]);
+  output('[leaf_paths]', { a: { b: 1 } }, [['a', 'b']]);
+  output('[paths(type == "number")]', { a: 1, b: 'x' }, [['a']]);
+});
+
