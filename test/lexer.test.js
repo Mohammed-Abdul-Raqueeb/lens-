@@ -79,3 +79,43 @@ test('variables and formats carry their names without the sigil', () => {
   assert.deepEqual(kinds('@base64'), ['format:base64']);
 });
 
+test('a sigil with no name is an error', () => {
+  throwsWith(() => tokenize('$'), LexError);
+  throwsWith(() => tokenize('@'), LexError);
+});
+
+test('strings resolve their escapes', () => {
+  assert.deepEqual(tokenize('"a\\nb"')[0].value, 'a\nb');
+  assert.deepEqual(tokenize('"a\\tb"')[0].value, 'a\tb');
+  assert.deepEqual(tokenize('"a\\"b"')[0].value, 'a"b');
+  assert.deepEqual(tokenize('"a\\\\b"')[0].value, 'a\\b');
+  assert.deepEqual(tokenize('"\\u00e9"')[0].value, 'é');
+});
+
+test('an unterminated string is an error pointing at its start', () => {
+  const error = throwsWith(() => tokenize('"unclosed'), LexError);
+  assert.match(error.message, /never closed/);
+  assert.equal(error.offset, 0);
+});
+
+test('a string cannot span lines', () => {
+  const error = throwsWith(() => tokenize('"a\nb"'), LexError);
+  assert.match(error.message, /cannot span lines/);
+});
+
+test('an unknown escape is rejected, quoting it', () => {
+  const error = throwsWith(() => tokenize('"a\\qb"'), LexError);
+  assert.match(error.message, /\\q/);
+});
+
+test('a short unicode escape is rejected', () => {
+  throwsWith(() => tokenize('"\\u00"'), LexError);
+  throwsWith(() => tokenize('"\\uZZZZ"'), LexError);
+});
+
+test('an interpolated string lexes as parts', () => {
+  const value = tokenize('"a\\(.x)b"')[0].value;
+  assert.ok(value.interpolate, 'the token carries interpolation parts');
+  assert.deepEqual(value.interpolate, ['a', { expr: '.x' }, 'b']);
+});
+
