@@ -829,3 +829,211 @@ function* evalUpdate(node, input, env) {
   }
 }
 
+/**
+ * The paths an expression addresses, for assignment and updates.
+ *
+ * Only a subset of the language is a valid path expression -- `.a`, `.[0]`,
+ * `.[]`, pipes and commas of those, and a few builtins. Everything else is
+ * refused by name, because `(1 + 1) = 3` has no meaning and the error should
+ * say that rather than failing somewhere inside the assignment.
+ *
+ * @param {object} node the target expression
+ * @param {unknown} input the document
+ * @param {Env} env the environment
+ * @returns {Array<Array<string|number>>} the addressed paths
+ */
+export function collectPaths(node, input, env) {
+  const out = [];
+
+  const walk = (current, value, prefix) => {
+    switch (current.type) {
+      case Node.IDENTITY:
+        out.push(prefix);
+        return;
+
+      case Node.FIELD: {
+        if (value !== null && value !== undefined
+            && (Array.isArray(value) || typeof value !== 'object')) {
+          if (current.optional) return;
+          throw failure(
+            current,
+            env,
+            `cannot read the field .${current.name} of ${typeName(value)}`,
+            value,
+          );
+        }
+        out.push([...prefix, current.name]);
+        return;
+      }
+
+      case Node.INDEX:
+        for (const key of evaluate(current.index, input, env)) {
+          if (typeof key !== 'string' && typeof key !== 'number') {
+            throw failure(current, env, `cannot use ${typeName(key)} as a path element`, key);
+          }
+          out.push([...prefix, key]);
+        }
+        return;
+
+      case Node.ITERATE: {
+        if (Array.isArray(value)) {
+          value.forEach((_, i) => out.push([...prefix, i]));
+          return;
+        }
+        if (value !== null && typeof value === 'object') {
+          for (const key of Object.keys(value)) out.push([...prefix, key]);
+          return;
+        }
+        if (current.optional) return;
+        throw failure(current, env, `cannot iterate over ${typeName(value)}`, value);
+      }
+
+      case Node.PIPE: {
+        // The left side's paths are prefixes for the right side's, so the
+        // right is walked once per left path against the value found there.
+        const leftPaths = collectPaths(current.left, value, env);
+        for (const leftPath of leftPaths) {
+          const nested = collectPaths(
+            current.right,
+            getPath(value, leftPath),
+            env,
+          );
+          for (const rightPath of nested) {
+            out.push([...prefix, ...leftPath, ...rightPath]);
+          }
+        }
+        return;
+      }
+
+      case Node.COMMA:
+        walk(current.left, value, prefix);
+        walk(current.right, value, prefix);
+        return;
+
+      case Node.OPTIONAL:
+        try {
+          walk(current.body, value, prefix);
+        } catch (error) {
+          if (!(error instanceof EvalError)) throw error;
+        }
+        return;
+
+      case Node.RECURSE:
+        for (const path of allPaths(value)) out.push([...prefix, ...path]);
+        out.push(prefix);
+        return;
+
+      case Node.CALL: {
+        if (current.name === 'select' && current.args.length === 1) {
+          for (const kept of evaluate(current.args[0], value, env)) {
+            if (truthy(kept)) out.push(prefix);
+          }
+          return;
+        }
+        if (current.name === 'first' && current.args.length === 0) {
+          const nested = collectPaths(
+            { type: Node.ITERATE, optional: false, offset: current.offset },
+            value,
+            env,
+          );
+          if (nested.length > 0) out.push([...prefix, ...nested[0]]);
+          return;
+        }
+        if (current.name === 'getpath' && current.args.length === 1) {
+          for (const path of evaluate(current.args[0], value, env)) {
+            out.push([...prefix, ...requirePath(path)]);
+          }
+          return;
+        }
+        if (current.name === 'empty' && current.args.length === 0) {
+          return;
+        }
+        throw failure(
+          current,
+          env,
+          `${current.name} cannot be assigned to;`
+            + ' only paths built from .field, .[i], .[] and pipes of those can be',
+        );
+      }
+
+      default:
+        throw failure(
+          current,
+          env,
+          `this expression cannot be assigned to`
+            + ' (only paths built from .field, .[i], .[] and pipes of those can be)',
+        );
+    }
+  };
+
+  walk(node, input, []);
+  return out;
+}
+
+/** The indices at which `needle` occurs as a subsequence of `haystack`. */
+function subsequenceIndices(haystack, needle) {
+  if (needle.length === 0) return [];
+
+  const out = [];
+  for (let i = 0; i + needle.length <= haystack.length; i++) {
+    let matched = true;
+    for (let j = 0; j < needle.length; j++) {
+      if (!equals(haystack[i + j], needle[j])) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) out.push(i);
+  }
+  return out;
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Builds an EvalError carrying the node's position.
+ *
+ * @param {object} node the node that failed
+ * @param {Env} env the environment, for the source text
+ * @param {string} message what went wrong
+ * @param {unknown} [value] the offending value
+ * @returns {EvalError} the error, for the caller to throw
+ */
+export function failure(node, env, message, value) {
+  return new EvalError(message, {
+    offset: node?.offset ?? -1,
+    source: env?.source ?? '',
+    value,
+  });
+}
+
+/**
+ * The builtin table, keyed by `name/arity`.
+ *
+ * Populated by {@link registerBuiltins} rather than at module load, so the
+ * builtins can import from this module without a cycle.
+ */
+export const BUILTINS = new Map();
+
+/** The `@name` formats, populated the same way. */
+export const FORMATS = {};
+
+/**
+ * Registers the builtin functions.
+ *
+ * @param {Record<string, Function>} table entries keyed by `name/arity`
+ */
+export function registerBuiltins(table) {
+  for (const [key, fn] of Object.entries(table)) BUILTINS.set(key, fn);
+}
+
+/**
+ * Registers the `@name` formats.
+ *
+ * @param {Record<string, Function>} table entries keyed by format name
+ */
+export function registerFormats(table) {
+  Object.assign(FORMATS, table);
+}
