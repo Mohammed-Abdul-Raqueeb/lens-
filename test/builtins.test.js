@@ -157,3 +157,58 @@ test('group_by groups every occurrence of a key', () => {
   );
 });
 
+test('unique sorts and deduplicates', () => {
+  output('unique', [3, 1, 2, 1, 3], [1, 2, 3]);
+  output('unique', [], []);
+});
+
+test('unique_by keeps the first of each group', () => {
+  const input = [{ k: 1, id: 'a' }, { k: 1, id: 'b' }, { k: 2, id: 'c' }];
+  output('[unique_by(.k)[] | .id]', input, ['a', 'c']);
+});
+
+test('reverse handles arrays, strings and null', () => {
+  output('reverse', [1, 2, 3], [3, 2, 1]);
+  output('reverse', 'abc', 'cba');
+  output('reverse', null, []);
+});
+
+test('min and max of an empty array are null', () => {
+  // So a report query over an empty list does not fail.
+  output('min', [], null);
+  output('max', [], null);
+  output('min', [3, 1, 2], 1);
+  output('max', [3, 1, 2], 3);
+});
+
+test('min_by and max_by keep the earlier element on a tie', () => {
+  output('min_by(.k) | .id', [{ k: 1, id: 'a' }, { k: 1, id: 'b' }], 'a');
+  output('max_by(.k) | .id', [{ k: 1, id: 'a' }, { k: 1, id: 'b' }], 'a');
+  output('min_by(.k) | .id', [{ k: 2, id: 'a' }, { k: 1, id: 'b' }], 'b');
+});
+
+test('add folds with the overloaded plus', () => {
+  output('add', [1, 2, 3], 6);
+  output('add', ['a', 'b'], 'ab');
+  output('add', [[1], [2]], [1, 2]);
+  output('add', [{ a: 1 }, { b: 2 }], { a: 1, b: 2 });
+  output('add', [], null);
+  output('add', { a: 1, b: 2 }, 3);
+});
+
+test('any of nothing is false and all of nothing is true', () => {
+  // The second surprises people and is the only answer that keeps
+  // all(f) and all(g) == all(f and g) true over empty input.
+  output('any', [], false);
+  output('all', [], true);
+  output('any', [false, true], true);
+  output('all', [true, false], false);
+});
+
+test('any and all with a filter short-circuit', () => {
+  output('any(. > 2)', [1, 2, 3], true);
+  output('all(. > 0)', [1, 2, 3], true);
+  // The predicate would error on the string, and is never reached.
+  output('any(. == 1)', [1, 'x'], true);
+});
+
