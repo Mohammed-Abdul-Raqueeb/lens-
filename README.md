@@ -1,5 +1,7 @@
 # Lens
 
+> 📘 **Case study:** [raqueeb.dev/projects/lens-](https://raqueeb.dev/projects/lens-) — architecture, stack and implementation notes.
+
 A JSON query language for the command line and for Node, with **no
 dependencies at all** — none at run time, none at build time, no lock file.
 
